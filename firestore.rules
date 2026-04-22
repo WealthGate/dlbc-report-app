@@ -1,0 +1,124 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function userCountryKey() {
+      return userDoc().data.countryKey;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && userDoc().data.role == "admin";
+    }
+
+    function isVettingCommitteeChairman() {
+      return isSignedIn() && (
+        userDoc().data.role == "vetting_committee_chairman" ||
+        userDoc().data.role == "vetting_committee_chair" ||
+        userDoc().data.role == "committee_chairman"
+      );
+    }
+
+    function isFinanceReporter() {
+      return isSignedIn() && (
+        userDoc().data.role == "finance_reporter" ||
+        userDoc().data.role == "financial_secretary" ||
+        userDoc().data.role == "finance_secretary" ||
+        userDoc().data.role == "accountant"
+      );
+    }
+
+    function canReadCountryReports() {
+      return isAdmin() || isVettingCommitteeChairman() || isFinanceReporter();
+    }
+
+    function canManageExpenses() {
+      return isAdmin() || isVettingCommitteeChairman();
+    }
+
+    function expensesOf(data) {
+      return data.financials is map && data.financials.expenses is list
+        ? data.financials.expenses
+        : [];
+    }
+
+    function canCreateReportWithExpenses() {
+      return canManageExpenses() || expensesOf(request.resource.data).size() == 0;
+    }
+
+    function canUpdateReportExpenses() {
+      return canManageExpenses() || expensesOf(request.resource.data) == expensesOf(resource.data);
+    }
+
+    /* USERS */
+    match /users/{userId} {
+      allow read: if isAdmin() && resource.data.countryKey == userCountryKey();
+      allow write: if isAdmin() && request.resource.data.countryKey == userCountryKey();
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    /* REPORTS */
+    match /reports/{reportId} {
+      allow read: if canReadCountryReports() && resource.data.countryKey == userCountryKey();
+      allow read: if isSignedIn() && request.auth.token.email == resource.data.createdBy;
+      allow create: if isSignedIn()
+        && request.resource.data.createdBy == request.auth.token.email
+        && request.resource.data.countryKey == userCountryKey()
+        && canCreateReportWithExpenses();
+      allow update: if isSignedIn()
+        && request.auth.token.email == resource.data.createdBy
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.countryKey == resource.data.countryKey
+        && canUpdateReportExpenses();
+      allow delete: if isSignedIn()
+        && request.auth.token.email == resource.data.createdBy;
+      allow update: if isAdmin()
+        && request.resource.data.countryKey == userCountryKey()
+        && resource.data.countryKey == userCountryKey();
+      allow delete: if isAdmin()
+        && resource.data.countryKey == userCountryKey();
+    }
+
+    /* PENDING USERS */
+    match /pending_users/{docId} {
+      allow read: if isAdmin() && resource.data.countryKey == userCountryKey();
+      allow write: if isAdmin() && request.resource.data.countryKey == userCountryKey();
+    }
+
+    /* MONTHLY SUMMARIES */
+    match /monthly_summaries/{docId} {
+      allow read: if canManageExpenses() && resource.data.countryKey == userCountryKey();
+      allow write: if canManageExpenses() && request.resource.data.countryKey == userCountryKey();
+    }
+
+    /* MONTHLY FINANCIAL ENTRIES */
+    match /monthly_financial_entries/{docId} {
+      allow read: if canManageExpenses() && resource.data.countryKey == userCountryKey();
+      allow write: if canManageExpenses() && request.resource.data.countryKey == userCountryKey();
+    }
+
+    /* MONTHLY EXPENSE RECORDS */
+    match /monthly_expense_records/{docId} {
+      allow read: if canManageExpenses() && resource.data.countryKey == userCountryKey();
+      allow write: if canManageExpenses() && request.resource.data.countryKey == userCountryKey();
+      allow delete: if canManageExpenses() && resource.data.countryKey == userCountryKey();
+    }
+
+    /* MONTHLY AI REPORTS */
+    match /monthly_ai_reports/{docId} {
+      allow read: if canReadCountryReports() && resource.data.countryKey == userCountryKey();
+    }
+
+    /* EVERYTHING ELSE */
+    match /{document=**} {
+      allow read, write: if isAdmin();
+    }
+  }
+}
