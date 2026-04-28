@@ -13,7 +13,6 @@ export default defineConfig({
           if (id.includes('firebase')) return 'firebase';
           if (id.includes('recharts') || id.includes('d3-')) return 'charts';
           if (id.includes('lucide-react')) return 'icons';
-          if (id.includes('react')) return 'react';
           return 'vendor';
         },
       },
