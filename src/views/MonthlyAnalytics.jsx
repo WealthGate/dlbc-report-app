@@ -35,18 +35,6 @@ import {
   resolveExpenseTargetLabel
 } from "./viewShared";
 
-const formatTextTable = (headers = [], rows = []) => {
-  const stringHeaders = headers.map((header) => String(header ?? ""));
-  const stringRows = rows.map((row) => row.map((cell) => String(cell ?? "")));
-  const widths = stringHeaders.map((header, index) =>
-    Math.max(header.length, ...stringRows.map((row) => String(row[index] ?? "").length))
-  );
-  const formatRow = (row) =>
-    row.map((cell, index) => String(cell ?? "").padEnd(widths[index], " ")).join(" | ");
-  const divider = widths.map((width) => "-".repeat(width)).join("-|-");
-  return [formatRow(stringHeaders), divider, ...stringRows.map(formatRow)].join("\n");
-};
-
 function buildMonthlyLetter(monthLabel, summary, countryLabel) {
   const {
     branchSummaries,
@@ -80,22 +68,6 @@ function buildMonthlyLetter(monthLabel, summary, countryLabel) {
   body += `During the month, a total of ${serviceCount} services and meetings were held across ${branchCount} branch location(s).\n`;
   body += `The total cumulative attendance was ${grandTotal} people: Men – ${totalMen}, Women – ${totalWomen}, Children – ${totalChildren}, Youth – ${totalYouth || 0}.\n`;
   body += `Overall average attendance: ${(monthlyReportOverview?.overall?.averageAttendance || 0).toFixed(1)} (${monthlyReportOverview?.overall?.calculation || `${grandTotal} / ${serviceCount} = ${(serviceCount ? grandTotal / serviceCount : 0).toFixed(1)}`}).\n\n`;
-
-  if ((monthlyReportOverview?.serviceTypes || []).length > 0) {
-    body += `OVERVIEW BREAKDOWN BY SERVICE TYPE\n`;
-    body += `${formatTextTable(
-      ["Service Type", "Held", "Cumulative", "Average Calculation", "Average", "Minimum", "Maximum"],
-      monthlyReportOverview.serviceTypes.map((row) => [
-        row.serviceType,
-        row.serviceCount,
-        row.attendance.total,
-        row.calculation,
-        row.averageAttendance.toFixed(1),
-        row.minAttendance,
-        row.maxAttendance
-      ])
-    )}\n\n`;
-  }
 
   body += `New visitors recorded: ${totalNewVisitors || 0}.\n\n`;
 
@@ -337,6 +309,135 @@ const buildMonthlyReportOverview = (monthReports = []) => {
     })
   };
 };
+
+function MonthlyOverviewBreakdown({ summary }) {
+  const overview = summary?.monthlyReportOverview || {};
+  const overall = overview.overall || createOverviewBucket({ serviceType: "All services" });
+  const branchRows = overview.branchServiceTypes || [];
+  const serviceRows = overview.serviceTypes || [];
+
+  return (
+    <section className="mb-6 print:mb-4">
+      <h3 className="mb-3 text-base font-semibold text-slate-900">
+        Overview Breakdown by Location and Service Type
+      </h3>
+      <div className="mb-4 grid gap-2 text-sm md:grid-cols-4">
+        <div className="rounded border border-slate-200 bg-slate-50 p-3">
+          <p className="text-xs font-semibold uppercase text-slate-500">Total Services</p>
+          <p className="text-lg font-bold text-slate-900">{overall.serviceCount || 0}</p>
+        </div>
+        <div className="rounded border border-slate-200 bg-slate-50 p-3">
+          <p className="text-xs font-semibold uppercase text-slate-500">Cumulative Attendance</p>
+          <p className="text-lg font-bold text-slate-900">{overall.attendance?.total || 0}</p>
+        </div>
+        <div className="rounded border border-slate-200 bg-slate-50 p-3">
+          <p className="text-xs font-semibold uppercase text-slate-500">Average Attendance</p>
+          <p className="text-lg font-bold text-slate-900">
+            {Number(overall.averageAttendance || 0).toFixed(1)}
+          </p>
+        </div>
+        <div className="rounded border border-slate-200 bg-slate-50 p-3">
+          <p className="text-xs font-semibold uppercase text-slate-500">Calculation</p>
+          <p className="text-sm font-semibold text-slate-900">
+            {overall.calculation || "0 / 0 = 0.0"}
+          </p>
+        </div>
+      </div>
+
+      <div className="mb-4 overflow-auto rounded border border-slate-300">
+        <table className="w-full min-w-[720px] border-collapse text-xs md:text-sm">
+          <caption className="bg-slate-100 px-3 py-2 text-left font-semibold text-slate-800">
+            Service Type Overview
+          </caption>
+          <thead className="bg-slate-50">
+            <tr>
+              <th className="border border-slate-200 px-2 py-2 text-left">Service Type</th>
+              <th className="border border-slate-200 px-2 py-2 text-right">Held</th>
+              <th className="border border-slate-200 px-2 py-2 text-right">Cumulative</th>
+              <th className="border border-slate-200 px-2 py-2 text-left">Average Calculation</th>
+              <th className="border border-slate-200 px-2 py-2 text-right">Average</th>
+              <th className="border border-slate-200 px-2 py-2 text-right">Min</th>
+              <th className="border border-slate-200 px-2 py-2 text-right">Max</th>
+            </tr>
+          </thead>
+          <tbody>
+            {serviceRows.length === 0 ? (
+              <tr>
+                <td className="border border-slate-200 px-2 py-2 text-slate-500" colSpan={7}>
+                  No service type overview rows available.
+                </td>
+              </tr>
+            ) : (
+              serviceRows.map((row) => (
+                <tr key={row.serviceType}>
+                  <td className="border border-slate-200 px-2 py-2">{row.serviceType}</td>
+                  <td className="border border-slate-200 px-2 py-2 text-right">{row.serviceCount}</td>
+                  <td className="border border-slate-200 px-2 py-2 text-right">{row.attendance.total}</td>
+                  <td className="border border-slate-200 px-2 py-2">{row.calculation}</td>
+                  <td className="border border-slate-200 px-2 py-2 text-right">{row.averageAttendance.toFixed(1)}</td>
+                  <td className="border border-slate-200 px-2 py-2 text-right">{row.minAttendance}</td>
+                  <td className="border border-slate-200 px-2 py-2 text-right">{row.maxAttendance}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="overflow-auto rounded border border-slate-300">
+        <table className="w-full min-w-[1100px] border-collapse text-xs md:text-sm">
+          <caption className="bg-slate-100 px-3 py-2 text-left font-semibold text-slate-800">
+            Location and Service Type Breakdown
+          </caption>
+          <thead className="bg-slate-50">
+            <tr>
+              <th className="border border-slate-200 px-2 py-2 text-left">Location</th>
+              <th className="border border-slate-200 px-2 py-2 text-left">Service Type</th>
+              <th className="border border-slate-200 px-2 py-2 text-right">Held</th>
+              <th className="border border-slate-200 px-2 py-2 text-right">Men</th>
+              <th className="border border-slate-200 px-2 py-2 text-right">Women</th>
+              <th className="border border-slate-200 px-2 py-2 text-right">Children</th>
+              <th className="border border-slate-200 px-2 py-2 text-right">Youth</th>
+              <th className="border border-slate-200 px-2 py-2 text-right">Visitors</th>
+              <th className="border border-slate-200 px-2 py-2 text-right">Cumulative</th>
+              <th className="border border-slate-200 px-2 py-2 text-left">Average Calculation</th>
+              <th className="border border-slate-200 px-2 py-2 text-right">Average</th>
+              <th className="border border-slate-200 px-2 py-2 text-right">Min</th>
+              <th className="border border-slate-200 px-2 py-2 text-right">Max</th>
+            </tr>
+          </thead>
+          <tbody>
+            {branchRows.length === 0 ? (
+              <tr>
+                <td className="border border-slate-200 px-2 py-2 text-slate-500" colSpan={13}>
+                  No location and service type rows available.
+                </td>
+              </tr>
+            ) : (
+              branchRows.map((row) => (
+                <tr key={`${row.branch}-${row.serviceType}`}>
+                  <td className="border border-slate-200 px-2 py-2 whitespace-nowrap">{row.branch}</td>
+                  <td className="border border-slate-200 px-2 py-2 whitespace-nowrap">{row.serviceType}</td>
+                  <td className="border border-slate-200 px-2 py-2 text-right">{row.serviceCount}</td>
+                  <td className="border border-slate-200 px-2 py-2 text-right">{row.attendance.men}</td>
+                  <td className="border border-slate-200 px-2 py-2 text-right">{row.attendance.women}</td>
+                  <td className="border border-slate-200 px-2 py-2 text-right">{row.attendance.children}</td>
+                  <td className="border border-slate-200 px-2 py-2 text-right">{row.attendance.youth}</td>
+                  <td className="border border-slate-200 px-2 py-2 text-right">{row.attendance.newVisitors}</td>
+                  <td className="border border-slate-200 px-2 py-2 text-right font-semibold">{row.attendance.total}</td>
+                  <td className="border border-slate-200 px-2 py-2 whitespace-nowrap">{row.calculation}</td>
+                  <td className="border border-slate-200 px-2 py-2 text-right">{row.averageAttendance.toFixed(1)}</td>
+                  <td className="border border-slate-200 px-2 py-2 text-right">{row.minAttendance}</td>
+                  <td className="border border-slate-200 px-2 py-2 text-right">{row.maxAttendance}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
 
 export default function MonthlyAnalytics({
   reports,
@@ -2030,6 +2131,7 @@ export default function MonthlyAnalytics({
                     : "AI-enriched monthly report"}
                 </div>
                 <div className="bg-white px-4 py-4">
+                  <MonthlyOverviewBreakdown summary={summary} />
                   <pre className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-800 font-sans">
                     {activeAiPanelText || "No content saved for this view."}
                   </pre>
@@ -2117,6 +2219,8 @@ export default function MonthlyAnalytics({
         REPORT OF DEEPER LIFE BIBLE CHURCH {countryLabel.toUpperCase()} ACTIVITIES – {monthLabel.toUpperCase()}
       </h2>
     </div>
+
+    <MonthlyOverviewBreakdown summary={summary} />
 
     {/* Editable letter body (serif, bigger) */}
     <section className="mb-6 print:mb-3">
