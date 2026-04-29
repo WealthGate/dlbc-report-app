@@ -26,12 +26,13 @@ export default function Dashboard({
   canAccessMonthlyFinancialEntry = false,
   onOpenMonthlyFinancialEntry
 }) {
+  const currentMonthKey = formatLocalMonthKey(new Date());
   const [branchFilter, setBranchFilter] = useState("");
   const [serviceTypeFilter, setServiceTypeFilter] = useState("");
   const [specialOnlyFilter, setSpecialOnlyFilter] = useState(false);
-  const [dateFilterMode, setDateFilterMode] = useState("all");
+  const [dateFilterMode, setDateFilterMode] = useState("month");
   const [singleDateFilter, setSingleDateFilter] = useState("");
-  const [monthFilter, setMonthFilter] = useState(formatLocalMonthKey(new Date()));
+  const [monthFilter, setMonthFilter] = useState(currentMonthKey);
   const [rangeStartDate, setRangeStartDate] = useState("");
   const [rangeEndDate, setRangeEndDate] = useState("");
 
@@ -263,10 +264,10 @@ export default function Dashboard({
               value={dateFilterMode}
               onChange={(e) => setDateFilterMode(e.target.value)}
             >
-              <option value="all">All dates</option>
+              <option value="month">Selected month</option>
               <option value="date">Single date</option>
               <option value="range">Date range</option>
-              <option value="month">Month</option>
+              <option value="all">All reports</option>
             </select>
           </InputGroup>
           {dateFilterMode === "date" && (
@@ -333,7 +334,8 @@ export default function Dashboard({
           </label>
         </div>
         <p className="text-xs text-slate-500">
-          Showing {filteredReports.length} of {sortedReports.length} report(s).
+          Showing {filteredReports.length} of {sortedReports.length} report(s)
+          {dateFilterMode === "month" && monthFilter ? ` for ${monthFilter}` : ""}.
         </p>
       </Card>
 
