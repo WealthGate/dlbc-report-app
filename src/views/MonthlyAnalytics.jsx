@@ -35,6 +35,18 @@ import {
   resolveExpenseTargetLabel
 } from "./viewShared";
 
+const formatTextTable = (headers = [], rows = []) => {
+  const stringHeaders = headers.map((header) => String(header ?? ""));
+  const stringRows = rows.map((row) => row.map((cell) => String(cell ?? "")));
+  const widths = stringHeaders.map((header, index) =>
+    Math.max(header.length, ...stringRows.map((row) => String(row[index] ?? "").length))
+  );
+  const formatRow = (row) =>
+    row.map((cell, index) => String(cell ?? "").padEnd(widths[index], " ")).join(" | ");
+  const divider = widths.map((width) => "-".repeat(width)).join("-|-");
+  return [formatRow(stringHeaders), divider, ...stringRows.map(formatRow)].join("\n");
+};
+
 function buildMonthlyLetter(monthLabel, summary, countryLabel) {
   const {
     branchSummaries,
@@ -70,12 +82,19 @@ function buildMonthlyLetter(monthLabel, summary, countryLabel) {
   body += `Overall average attendance: ${(monthlyReportOverview?.overall?.averageAttendance || 0).toFixed(1)} (${monthlyReportOverview?.overall?.calculation || `${grandTotal} / ${serviceCount} = ${(serviceCount ? grandTotal / serviceCount : 0).toFixed(1)}`}).\n\n`;
 
   if ((monthlyReportOverview?.serviceTypes || []).length > 0) {
-    body += `SERVICE TYPE OVERVIEW\n`;
-    body += `Service Type | Held | Cumulative | Average Calculation | Average | Minimum | Maximum\n`;
-    monthlyReportOverview.serviceTypes.forEach((row) => {
-      body += `${row.serviceType} | ${row.serviceCount} | ${row.attendance.total} | ${row.calculation} | ${row.averageAttendance.toFixed(1)} | ${row.minAttendance} | ${row.maxAttendance}\n`;
-    });
-    body += `\n`;
+    body += `OVERVIEW BREAKDOWN BY SERVICE TYPE\n`;
+    body += `${formatTextTable(
+      ["Service Type", "Held", "Cumulative", "Average Calculation", "Average", "Minimum", "Maximum"],
+      monthlyReportOverview.serviceTypes.map((row) => [
+        row.serviceType,
+        row.serviceCount,
+        row.attendance.total,
+        row.calculation,
+        row.averageAttendance.toFixed(1),
+        row.minAttendance,
+        row.maxAttendance
+      ])
+    )}\n\n`;
   }
 
   body += `New visitors recorded: ${totalNewVisitors || 0}.\n\n`;
@@ -2122,7 +2141,7 @@ export default function MonthlyAnalytics({
 
 <Card className="p-6 print:p-3 print:shadow-none print:border-none monthly-table-card">
   <h3 className="font-semibold mb-4 text-slate-800">
-    Report-Ready Monthly Statistics
+    Overview Breakdown by Location and Service Type
   </h3>
   <div className="grid md:grid-cols-5 gap-3 text-sm mb-5">
     <div className="rounded border border-slate-200 bg-slate-50 p-3">

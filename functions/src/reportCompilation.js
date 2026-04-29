@@ -10,6 +10,18 @@ const normalizeNumber = (value) => {
 
 const normalizeText = (value = "") => String(value || "").trim();
 
+const formatTextTable = (headers = [], rows = []) => {
+  const stringHeaders = headers.map((header) => String(header ?? ""));
+  const stringRows = rows.map((row) => row.map((cell) => String(cell ?? "")));
+  const widths = stringHeaders.map((header, index) =>
+    Math.max(header.length, ...stringRows.map((row) => String(row[index] ?? "").length))
+  );
+  const formatRow = (row) =>
+    row.map((cell, index) => String(cell ?? "").padEnd(widths[index], " ")).join(" | ");
+  const divider = widths.map((width) => "-".repeat(width)).join("-|-");
+  return [formatRow(stringHeaders), divider, ...stringRows.map(formatRow)].join("\n");
+};
+
 const DAY_NAMES = [
   "Sunday",
   "Monday",
@@ -528,17 +540,44 @@ export const buildCompiledReportText = ({ rawEntries = [], structuredCompilation
 
   const branchReports = structuredCompilation.branchReports || [];
   if (branchReports.length > 0) {
-    lines.push(`Branch and Service Type Attendance Overview`);
+    lines.push(`Overview Breakdown by Location and Service Type`);
     lines.push(
-      `Location | Service Type | Held | Men | Women | Children | Youth | New Visitors | Cumulative Attendance | Average Calculation | Average | Min | Max`
+      formatTextTable(
+        [
+          "Location",
+          "Service Type",
+          "Held",
+          "Men",
+          "Women",
+          "Children",
+          "Youth",
+          "Visitors",
+          "Cumulative",
+          "Average Calculation",
+          "Average",
+          "Min",
+          "Max"
+        ],
+        branchReports.flatMap((branch) =>
+          (branch.serviceBreakdown || []).map((service) => [
+            branch.branch,
+            service.serviceType,
+            service.count,
+            service.attendance?.men || 0,
+            service.attendance?.women || 0,
+            service.attendance?.children || 0,
+            service.attendance?.youth || 0,
+            service.attendance?.newVisitors || 0,
+            service.totalAttendance || 0,
+            service.calculation ||
+              `${service.totalAttendance || 0} / ${service.count || 0} = ${normalizeNumber(service.averageAttendance).toFixed(1)}`,
+            normalizeNumber(service.averageAttendance).toFixed(1),
+            service.minAttendance || 0,
+            service.maxAttendance || 0
+          ])
+        )
+      )
     );
-    for (const branch of branchReports) {
-      for (const service of branch.serviceBreakdown || []) {
-        lines.push(
-          `${branch.branch} | ${service.serviceType} | ${service.count} | ${service.attendance?.men || 0} | ${service.attendance?.women || 0} | ${service.attendance?.children || 0} | ${service.attendance?.youth || 0} | ${service.attendance?.newVisitors || 0} | ${service.totalAttendance || 0} | ${service.calculation || `${service.totalAttendance || 0} / ${service.count || 0} = ${normalizeNumber(service.averageAttendance).toFixed(1)}`} | ${normalizeNumber(service.averageAttendance).toFixed(1)} | ${service.minAttendance || 0} | ${service.maxAttendance || 0}`
-        );
-      }
-    }
     lines.push(``);
 
     lines.push(`Branch Reports`);
@@ -571,13 +610,22 @@ export const buildCompiledReportText = ({ rawEntries = [], structuredCompilation
 
   const countryServiceStats = structuredCompilation.countryServiceStats || [];
   if (countryServiceStats.length > 0) {
-    lines.push(`Country-wide Service Type Statistics`);
-    lines.push(`Service Type | Held | Cumulative Attendance | Average Calculation | Average | Min | Max`);
-    for (const service of countryServiceStats) {
-      lines.push(
-        `${service.serviceType} | ${service.count} | ${service.totalAttendance || 0} | ${service.calculation || `${service.totalAttendance || 0} / ${service.count || 0} = ${normalizeNumber(service.averageAttendance).toFixed(1)}`} | ${normalizeNumber(service.averageAttendance).toFixed(1)} | ${service.minAttendance || 0} | ${service.maxAttendance || 0}`
-      );
-    }
+    lines.push(`Overview Breakdown by Service Type`);
+    lines.push(
+      formatTextTable(
+        ["Service Type", "Held", "Cumulative", "Average Calculation", "Average", "Min", "Max"],
+        countryServiceStats.map((service) => [
+          service.serviceType,
+          service.count,
+          service.totalAttendance || 0,
+          service.calculation ||
+            `${service.totalAttendance || 0} / ${service.count || 0} = ${normalizeNumber(service.averageAttendance).toFixed(1)}`,
+          normalizeNumber(service.averageAttendance).toFixed(1),
+          service.minAttendance || 0,
+          service.maxAttendance || 0
+        ])
+      )
+    );
     lines.push(``);
   }
 

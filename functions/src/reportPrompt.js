@@ -30,7 +30,7 @@ export const buildMonthlyChurchReportPrompt = ({
     `Your role is to improve grammar, clarity, structure, tone, readability, flow, and professionalism only.`,
     `Use formal, respectful church administrative language.`,
     `Place the Overview section immediately after the Title.`,
-    `In the Overview section, include easy-to-read plain text tables for overall attendance, service-type attendance, and per-location/per-service attendance.`,
+    `In the Overview section, include easy-to-read aligned plain text tables headed "Overview Breakdown by Service Type" and "Overview Breakdown by Location and Service Type".`,
     `For each service type and each location/service-type row, show services held, cumulative attendance, Men, Women, Children, Youth if present, New Visitors, the average calculation in the form cumulative divided by services held, the resulting average, minimum, and maximum.`,
     `Merge duplicate or overlapping entries carefully without losing facts.`,
     `If no specific challenge was reported, state that no specific challenge was explicitly reported.`,
