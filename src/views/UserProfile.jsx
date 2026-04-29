@@ -443,8 +443,7 @@ export default function UserProfile({ userProfile, db, auth }) {
                             day: "numeric"
                           })
                         : r.date || "-";
-                      const branchLabel =
-                        r.branch === "Other" && r.otherBranch ? r.otherBranch : r.branch || "-";
+                      const branchLabel = getBranchLabel(r);
                       return (
                         <tr key={r.id} className="border-b last:border-b-0">
                           <td className="px-2 py-1 whitespace-nowrap">{dateLabel}</td>

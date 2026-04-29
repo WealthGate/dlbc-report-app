@@ -5,7 +5,7 @@ export const DEFAULT_BRANCHES = [
   "Portsmouth",
   "Marigot",
   "Grand Bay",
-  "Headquarters",
+  "Goodwill",
   "Other"
 ];
 
@@ -39,6 +39,29 @@ export const COLLECTION_PURPOSES = [
   "Thanksgiving",
   "Other"
 ];
+
+export const BASE_CURRENCY = "XCD";
+export const USD_TO_XCD_RATE = 2.67;
+
+export const COLLECTION_CURRENCIES = [
+  { code: "XCD", label: "Eastern Caribbean Dollar (XCD/EC)", rateToXcd: 1 },
+  { code: "USD", label: "US Dollar (USD)", rateToXcd: USD_TO_XCD_RATE },
+  { code: "EUR", label: "Euro (EUR)", rateToXcd: 1 },
+  { code: "GBP", label: "British Pound (GBP)", rateToXcd: 1 },
+  { code: "BBD", label: "Barbados Dollar (BBD)", rateToXcd: 1 },
+  { code: "TTD", label: "Trinidad & Tobago Dollar (TTD)", rateToXcd: 1 },
+  { code: "JMD", label: "Jamaican Dollar (JMD)", rateToXcd: 1 },
+  { code: "GYD", label: "Guyanese Dollar (GYD)", rateToXcd: 1 },
+  { code: "BSD", label: "Bahamian Dollar (BSD)", rateToXcd: 1 },
+  { code: "BZD", label: "Belize Dollar (BZD)", rateToXcd: 1 }
+];
+
+export const getCurrencyOption = (currency = BASE_CURRENCY) =>
+  COLLECTION_CURRENCIES.find((option) => option.code === currency) ||
+  COLLECTION_CURRENCIES[0];
+
+export const getDefaultExchangeRateToXcd = (currency = BASE_CURRENCY) =>
+  getCurrencyOption(currency).rateToXcd;
 
 export const CORE_SERVICE_TYPES = [
   "Sunday Worship Service",
@@ -77,6 +100,7 @@ export const getDayOfWeek = (dateValue = "") => {
 
 export const getBranchName = (record = {}) => {
   if (record.branch === "Other" && record.otherBranch) return record.otherBranch;
+  if (record.branch === "Headquarters") return "Goodwill";
   return record.branch || "Unknown";
 };
 
@@ -108,11 +132,20 @@ export const getAttendanceTotals = (record = {}) => {
   };
 };
 
+export const getIncomeRowAmountXcd = (row = {}) => {
+  const amount = parseNonNegativeNumber(row.amount);
+  const currency = row.currency || BASE_CURRENCY;
+  const fallbackRate = getDefaultExchangeRateToXcd(currency);
+  const rate = parseNonNegativeNumber(row.exchangeRateToXcd ?? row.exchangeRate ?? fallbackRate);
+  if (row.currency || row.exchangeRateToXcd != null || row.exchangeRate != null) {
+    return amount * (rate || fallbackRate || 1);
+  }
+  if (row.amountXcd != null) return parseNonNegativeNumber(row.amountXcd);
+  return amount * (rate || fallbackRate || 1);
+};
+
 export const getIncomeTotal = (record = {}) =>
-  (record.financials?.income || []).reduce(
-    (sum, row) => sum + parseNonNegativeNumber(row.amount),
-    0
-  );
+  (record.financials?.income || []).reduce((sum, row) => sum + getIncomeRowAmountXcd(row), 0);
 
 export const getIncomePurpose = (row = {}) =>
   row.purpose === "Other"
@@ -288,7 +321,7 @@ export const buildMonthlyServiceSummary = (records = []) => {
     );
 
     (record.financials?.income || []).forEach((row) => {
-      const amount = parseNonNegativeNumber(row.amount);
+      const amount = getIncomeRowAmountXcd(row);
       if (!amount) return;
       const purpose = getIncomePurpose(row);
       incomeByPurpose.set(purpose, (incomeByPurpose.get(purpose) || 0) + amount);
@@ -367,7 +400,7 @@ export const buildServiceRecordsCsv = (records = []) => {
     const normalized = normalizeServiceRecord(record);
     const incomePurposes = (record.financials?.income || [])
       .filter((row) => parseNonNegativeNumber(row.amount) > 0 || row.label || row.purpose)
-      .map((row) => `${getIncomePurpose(row)}: ${parseNonNegativeNumber(row.amount).toFixed(2)}`)
+      .map((row) => `${getIncomePurpose(row)}: ${getIncomeRowAmountXcd(row).toFixed(2)}`)
       .join("; ");
     return [
       normalized.date,

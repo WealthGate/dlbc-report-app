@@ -2,9 +2,12 @@ import React, { useState } from "react";
 import { DollarSign, FileText, Users, X } from "lucide-react";
 import {
   COLLECTION_PURPOSES,
+  COLLECTION_CURRENCIES,
   DEFAULT_BRANCHES,
   getAttendanceTotals,
+  getDefaultExchangeRateToXcd,
   getDayOfWeek,
+  getIncomeRowAmountXcd,
   SPECIAL_PROGRAMME_TYPES,
   STANDARD_SERVICE_TYPES,
   validateServiceRecord
@@ -14,7 +17,10 @@ import { Button, Card, formatLocalDateKey, InputGroup } from "./viewShared";
 const BRANCH_OPTIONS = [...DEFAULT_BRANCHES];
 
 export default function ReportForm({ initialData, userBranch, onSave, onCancel }) {
-  const initialBranch = initialData?.branch || userBranch || "Headquarters";
+  const initialBranch =
+    (initialData?.branch === "Headquarters" ? "Goodwill" : initialData?.branch) ||
+    (userBranch === "Headquarters" ? "Goodwill" : userBranch) ||
+    "Goodwill";
   const [date, setDate] = useState(
     initialData?.date || formatLocalDateKey(new Date())
   );
@@ -54,7 +60,15 @@ export default function ReportForm({ initialData, userBranch, onSave, onCancel }
   const [branch, setBranch] = useState(initialBranch);
   const [otherBranch, setOtherBranch] = useState(initialData?.otherBranch || "");
   const [incomeRows, setIncomeRows] = useState(
-    initialData?.financials?.income || [{ purpose: "Offering", label: "Offering", amount: "" }]
+    initialData?.financials?.income || [
+      {
+        purpose: "Offering",
+        label: "Offering",
+        amount: "",
+        currency: "XCD",
+        exchangeRateToXcd: 1
+      }
+    ]
   );
   const [notes, setNotes] = useState(initialData?.notes || "");
   const [saving, setSaving] = useState(false);
@@ -70,11 +84,24 @@ export default function ReportForm({ initialData, userBranch, onSave, onCancel }
 
   const handleRowChange = (rows, setRows, index, field, value) => {
     const copy = [...rows];
-    copy[index] = { ...copy[index], [field]: value };
+    const nextRow = { ...copy[index], [field]: value };
+    if (field === "currency") {
+      nextRow.exchangeRateToXcd = getDefaultExchangeRateToXcd(value);
+    }
+    copy[index] = nextRow;
     setRows(copy);
   };
 
-  const addRow = (rows, setRows, makeRow = () => ({ label: "", amount: "" })) => {
+  const addRow = (
+    rows,
+    setRows,
+    makeRow = () => ({
+      label: "",
+      amount: "",
+      currency: "XCD",
+      exchangeRateToXcd: 1
+    })
+  ) => {
     setRows([...rows, makeRow()]);
   };
 
@@ -82,7 +109,12 @@ export default function ReportForm({ initialData, userBranch, onSave, onCancel }
     rows,
     setRows,
     index,
-    makeDefaultRow = () => ({ label: "", amount: "" })
+    makeDefaultRow = () => ({
+      label: "",
+      amount: "",
+      currency: "XCD",
+      exchangeRateToXcd: 1
+    })
   ) => {
     const copy = [...rows];
     copy.splice(index, 1);
@@ -120,11 +152,16 @@ export default function ReportForm({ initialData, userBranch, onSave, onCancel }
             purpose,
             otherPurpose: r.otherPurpose?.trim() || "",
             label,
-            amount: parseFloat(r.amount || 0) || 0
+            amount: parseFloat(r.amount || 0) || 0,
+            currency: r.currency || "XCD",
+            exchangeRateToXcd: parseFloat(
+              r.exchangeRateToXcd ?? getDefaultExchangeRateToXcd(r.currency || "XCD")
+            ) || getDefaultExchangeRateToXcd(r.currency || "XCD"),
+            amountXcd: getIncomeRowAmountXcd(r)
           };
         })
-        .filter((r) => r.label || r.amount);
-      const totalIncome = cleanIncome.reduce((sum, row) => sum + (row.amount || 0), 0);
+        .filter((r) => r.label || r.amount || r.amountXcd);
+      const totalIncome = cleanIncome.reduce((sum, row) => sum + (row.amountXcd || 0), 0);
       const totalAttendance = attendancePreview.total;
 
       const payload = {
@@ -166,7 +203,7 @@ export default function ReportForm({ initialData, userBranch, onSave, onCancel }
   };
 
   const totalIncome = incomeRows.reduce(
-    (sum, r) => sum + (parseFloat(r.amount || 0) || 0),
+    (sum, r) => sum + getIncomeRowAmountXcd(r),
     0
   );
 
@@ -377,7 +414,7 @@ export default function ReportForm({ initialData, userBranch, onSave, onCancel }
               </div>
               <div className="space-y-2">
                 {incomeRows.map((row, idx) => (
-                  <div key={idx} className="grid md:grid-cols-[1fr,1fr,120px,36px] gap-2">
+                  <div key={idx} className="grid md:grid-cols-[1fr,1fr,110px,120px,110px,36px] gap-2">
                     <select
                       className="border rounded px-3 py-2 text-sm"
                       value={row.purpose || row.label || "Offering"}
@@ -407,12 +444,47 @@ export default function ReportForm({ initialData, userBranch, onSave, onCancel }
                     />
                     <input
                       className="border rounded px-3 py-2 text-sm text-right"
-                      placeholder="0.00"
+                      placeholder="Amount"
                       value={row.amount}
                       onChange={(e) =>
                         handleRowChange(incomeRows, setIncomeRows, idx, "amount", e.target.value)
                       }
                     />
+                    <select
+                      className="border rounded px-3 py-2 text-sm"
+                      value={row.currency || "XCD"}
+                      onChange={(e) =>
+                        handleRowChange(incomeRows, setIncomeRows, idx, "currency", e.target.value)
+                      }
+                    >
+                      {COLLECTION_CURRENCIES.map((currency) => (
+                        <option key={currency.code} value={currency.code}>
+                          {currency.code}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      className="border rounded px-3 py-2 text-sm text-right"
+                      aria-label="EC exchange rate"
+                      title="EC dollars for 1 unit of the selected currency"
+                      value={
+                        row.exchangeRateToXcd ??
+                        getDefaultExchangeRateToXcd(row.currency || "XCD")
+                      }
+                      onChange={(e) =>
+                        handleRowChange(
+                          incomeRows,
+                          setIncomeRows,
+                          idx,
+                          "exchangeRateToXcd",
+                          e.target.value
+                        )
+                      }
+                      readOnly={["XCD", "USD"].includes(row.currency || "XCD")}
+                    />
+                    <div className="rounded border bg-white px-2 py-2 text-right text-xs text-slate-600">
+                      EC {getIncomeRowAmountXcd(row).toFixed(2)}
+                    </div>
                     <button
                       type="button"
                       onClick={() => removeRow(incomeRows, setIncomeRows, idx)}

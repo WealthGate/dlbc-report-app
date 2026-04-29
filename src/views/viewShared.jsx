@@ -1,4 +1,5 @@
 import React from "react";
+import { getIncomeRowAmountXcd } from "../reporting/serviceRecords";
 
 export const EXPENSE_LOCATION_NON_BRANCH = "Not branch-specific";
 export const EXPENSE_LOCATION_OTHER = "Other location";
@@ -139,6 +140,7 @@ export const getServiceLabel = (report) => {
 
 export const getBranchLabel = (report = {}) => {
   if (report.branch === "Other") return report.otherBranch?.trim() || "Other";
+  if (report.branch === "Headquarters") return "Goodwill";
   return report.branch || "Unknown";
 };
 
@@ -163,7 +165,12 @@ export const buildReportKey = ({
     serviceType === "Other Programme" || serviceType === "Other"
       ? otherServiceType?.trim() || serviceType || "Service"
       : serviceType || "Service";
-  const branchLabel = branch === "Other" && otherBranch?.trim() ? otherBranch.trim() : branch || "Unknown";
+  const branchLabel =
+    branch === "Other" && otherBranch?.trim()
+      ? otherBranch.trim()
+      : branch === "Headquarters"
+        ? "Goodwill"
+        : branch || "Unknown";
   return [
     normalizeKeyPart(countryKey || "country"),
     normalizeKeyPart(date || "date"),
@@ -237,10 +244,9 @@ export const buildServiceReportEmailBody = (report) => {
   const totalAttendance = men + women + children;
   const income = report.financials?.income || [];
   const expenses = report.financials?.expenses || [];
-  const incomeTotal = income.reduce((s, r) => s + (parseFloat(r.amount || 0) || 0), 0);
+  const incomeTotal = income.reduce((s, r) => s + getIncomeRowAmountXcd(r), 0);
   const expenseTotal = expenses.reduce((s, r) => s + (parseFloat(r.amount || 0) || 0), 0);
-  const branchName =
-    report.branch === "Other" && report.otherBranch ? report.otherBranch : report.branch || "";
+  const branchName = getBranchLabel(report);
 
   return [
     `Service Report`,
@@ -259,7 +265,14 @@ export const buildServiceReportEmailBody = (report) => {
     ``,
     `Income Details`,
     ...(income.length
-      ? income.map((row) => `- ${(row.label || row.purpose || "Income").trim()}: XCD ${(parseFloat(row.amount || 0) || 0).toFixed(2)}`)
+      ? income.map((row) => {
+          const originalAmount = parseFloat(row.amount || 0) || 0;
+          const original =
+            row.currency && row.currency !== "XCD"
+              ? `${row.currency} ${originalAmount.toFixed(2)} / `
+              : "";
+          return `- ${(row.label || row.purpose || "Income").trim()}: ${original}XCD ${getIncomeRowAmountXcd(row).toFixed(2)}`;
+        })
       : ["- No income lines recorded."]),
     ``,
     `Expense Details`,

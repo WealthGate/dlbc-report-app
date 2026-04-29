@@ -26,7 +26,8 @@ import {
   updateDoc,
   where,
   getDoc,
-  setDoc
+  setDoc,
+  writeBatch
 } from 'firebase/firestore';
 import {
   getAuth,
@@ -65,6 +66,7 @@ const firebaseConfig = {
 };
 
 const SUPER_ADMIN_EMAIL = "deeperlifedom@gmail.com";
+const APRIL_HEADQUARTERS_MIGRATION_MONTH = "2026-04";
 
 // --- INITIALIZE FIREBASE ---
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
@@ -206,6 +208,7 @@ export default function ChurchReportApp() {
   const [analyticsSection, setAnalyticsSection] = useState("report");
   const [analyticsJumpToken, setAnalyticsJumpToken] = useState(0);
   const [reports, setReports] = useState([]);
+  const [migratedAprilHeadquartersReports, setMigratedAprilHeadquartersReports] = useState(false);
   const [editingReport, setEditingReport] = useState(null);
   const [currentReport, setCurrentReport] = useState(null);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
@@ -261,7 +264,7 @@ export default function ChurchReportApp() {
               if (currentUser.email === SUPER_ADMIN_EMAIL) {
                 const adminProfile = {
                   displayName: "Super Admin",
-                  branch: "Headquarters",
+                  branch: "Goodwill",
                   country: "Global",
                   countryKey: "global",
                   email: currentUser.email,
@@ -307,12 +310,68 @@ export default function ChurchReportApp() {
   useEffect(() => {
     if (!user || !userProfile) return;
     const update = getMissingCountryKeyUpdate(userProfile);
-    if (!update) return;
+    const branchUpdate = userProfile.branch === "Headquarters" ? { branch: "Goodwill" } : null;
+    const profileUpdate = { ...(update || {}), ...(branchUpdate || {}) };
+    if (!Object.keys(profileUpdate).length) return;
 
-    updateDoc(doc(db, "users", user.uid), update).catch((err) => {
+    updateDoc(doc(db, "users", user.uid), profileUpdate).catch((err) => {
       console.error("Unable to update missing profile country key:", err);
     });
   }, [user, userProfile]);
+
+  useEffect(() => {
+    if (!user || migratedAprilHeadquartersReports) return;
+    if (!reports.length) return;
+    const targets = (reports || []).filter(
+      (report) =>
+        report?.id &&
+        report.branch === "Headquarters" &&
+        String(report.date || "").startsWith(`${APRIL_HEADQUARTERS_MIGRATION_MONTH}-`)
+    );
+    if (!targets.length) {
+      setMigratedAprilHeadquartersReports(true);
+      return;
+    }
+
+    const migrateReports = async () => {
+      try {
+        const batch = writeBatch(db);
+        for (const report of targets) {
+          const migratedReport = {
+            ...report,
+            branch: "Goodwill",
+            otherBranch: "",
+            lastModifiedBy: user.email,
+            lastModifiedAt: new Date().toISOString()
+          };
+          const reportKey = buildReportKey({
+            countryKey: report.countryKey || countryKey,
+            date: migratedReport.date,
+            serviceType: migratedReport.serviceType,
+            otherServiceType: migratedReport.otherServiceType,
+            branch: migratedReport.branch,
+            otherBranch: migratedReport.otherBranch
+          });
+          const { id, ...payload } = migratedReport;
+          const nextPayload = { ...payload, reportKey };
+
+          if (report.id === reportKey) {
+            batch.update(doc(db, "reports", report.id), nextPayload);
+          } else {
+            batch.set(doc(db, "reports", reportKey), nextPayload, { merge: true });
+            batch.delete(doc(db, "reports", report.id));
+          }
+        }
+        await batch.commit();
+      } catch (err) {
+        console.error("Unable to migrate April Headquarters reports to Goodwill:", err);
+      } finally {
+        setMigratedAprilHeadquartersReports(true);
+      }
+    };
+
+    migrateReports();
+  }, [user, reports, countryKey, migratedAprilHeadquartersReports]);
 
   useEffect(() => {
     if (!user) return;
@@ -421,12 +480,17 @@ export default function ChurchReportApp() {
     try {
       const effectiveBranch = reportData.id
         ? reportData.branch
-        : userProfile?.branch || reportData.branch || "Headquarters";
+        : userProfile?.branch || reportData.branch || "Goodwill";
+      const normalizedEffectiveBranch =
+        effectiveBranch === "Headquarters" ? "Goodwill" : effectiveBranch;
       const effectiveOtherBranch =
-        effectiveBranch === "Other" ? reportData.otherBranch : "";
+        normalizedEffectiveBranch === "Other" ? reportData.otherBranch : "";
       const basePayload = reportData.id
-        ? reportData
-        : { ...reportData, branch: effectiveBranch, otherBranch: effectiveOtherBranch };
+        ? {
+            ...reportData,
+            branch: reportData.branch === "Headquarters" ? "Goodwill" : reportData.branch
+          }
+        : { ...reportData, branch: normalizedEffectiveBranch, otherBranch: effectiveOtherBranch };
 
       const reportKey = buildReportKey({
         countryKey,

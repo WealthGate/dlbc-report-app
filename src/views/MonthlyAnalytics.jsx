@@ -10,13 +10,14 @@ import {
   normalizeMonthlyAiReport,
   requestMonthlyAiReportGeneration
 } from "../services/monthlyAiReportClient";
-import { buildMonthlyServiceSummary, buildServiceRecordsCsv, downloadCsv, getDayOfWeek, getIncomePurpose } from "../reporting/serviceRecords";
+import { buildMonthlyServiceSummary, buildServiceRecordsCsv, downloadCsv, getDayOfWeek, getIncomePurpose, getIncomeRowAmountXcd } from "../reporting/serviceRecords";
 import {
   buildMonthlyEmailBody,
   Button,
   canEditMonthlyExpenses,
   canReadCountryReports,
   Card,
+  createMonthlyExpenseRowId,
   defaultMonthlyExpenseRow,
   formatExpenseDisplay,
   formatLocalDateKey,
@@ -175,6 +176,12 @@ const validateMonthlyExpenseRow = (row) => {
   return "";
 };
 
+const getReportBranchName = (report = {}) => {
+  if (report.branch === "Other" && report.otherBranch) return report.otherBranch;
+  if (report.branch === "Headquarters") return "Goodwill";
+  return report.branch || "Unknown";
+};
+
 const buildFinancialLedgerEntries = (summary) => {
   const incomeEntries = (summary?.incomeRegisterEntries || []).map((row) => ({
     date: row.date || "",
@@ -305,8 +312,7 @@ export default function MonthlyAnalytics({
     const legacyExpenseByTarget = {};
 
     monthReports.forEach((r) => {
-      const branchName =
-        r.branch === "Other" && r.otherBranch ? r.otherBranch : r.branch || "Unknown";
+      const branchName = getReportBranchName(r);
 
       if (!branchesMap[branchName]) {
         branchesMap[branchName] = { name: branchName, services: {} };
@@ -330,14 +336,14 @@ export default function MonthlyAnalytics({
       totalNewVisitors += visitors;
 
       const income = (r.financials?.income || []).reduce(
-        (sum, row) => sum + (parseFloat(row.amount || 0) || 0),
+        (sum, row) => sum + getIncomeRowAmountXcd(row),
         0
       );
       const reportDateObj = parseReportDate(r.date);
       const reportDateLabel = reportDateObj ? formatLocalDateKey(reportDateObj) : r.date || "";
       const serviceLabel = getServiceLabel(r);
       (r.financials?.income || []).forEach((row) => {
-        const amount = parseFloat(row.amount || 0) || 0;
+        const amount = getIncomeRowAmountXcd(row);
         if (!amount && !String(row.label || "").trim()) return;
         incomeRegisterEntries.push({
           date: reportDateLabel,
@@ -425,8 +431,7 @@ export default function MonthlyAnalytics({
     // Group reports by branch for the detailed table and sort each branch's reports by date
     const reportsByBranch = {};
     monthReports.forEach((r) => {
-      const branchName =
-        r.branch === "Other" && r.otherBranch ? r.otherBranch : r.branch || "Unknown";
+      const branchName = getReportBranchName(r);
       if (!reportsByBranch[branchName]) reportsByBranch[branchName] = [];
       reportsByBranch[branchName].push(r);
     });
@@ -443,7 +448,7 @@ export default function MonthlyAnalytics({
     monthReports.forEach((r) => {
       (r.financials?.income || []).forEach((row) => {
         const label = getIncomePurpose(row);
-        const amt = parseFloat(row.amount || 0) || 0;
+        const amt = getIncomeRowAmountXcd(row);
         incomeCategoryMap[label] = (incomeCategoryMap[label] || 0) + amt;
       });
     });
@@ -468,8 +473,7 @@ export default function MonthlyAnalytics({
       const dateObj = parseReportDate(r.date);
       if (!dateObj || Number.isNaN(dateObj.getTime())) return;
       const dateKey = formatLocalDateKey(dateObj);
-      const branchName =
-        r.branch === "Other" && r.otherBranch ? r.otherBranch : r.branch || "Unknown";
+      const branchName = getReportBranchName(r);
       const a = r.attendance || {};
       const totalAtt =
         (parseInt(a.men || 0, 10) || 0) +
@@ -494,8 +498,7 @@ export default function MonthlyAnalytics({
     const notesForMonth = monthReports
       .filter((r) => r.notes && r.notes.trim())
       .map((r) => {
-        const branchName =
-          r.branch === "Other" && r.otherBranch ? r.otherBranch : r.branch || "Unknown";
+        const branchName = getReportBranchName(r);
         const parsed = parseReportDate(r.date);
         const d = parsed ? formatLocalDateKey(parsed) : "";
         const trimmed = r.notes.length > 220 ? r.notes.slice(0, 220) + "..." : r.notes;
@@ -2161,11 +2164,11 @@ export default function MonthlyAnalytics({
                   const visitors = parseInt(r.newVisitors ?? a.newVisitors ?? 0, 10) || 0;
                   const total = men + women + children;
                   const income = (r.financials?.income || []).reduce(
-                    (sum, row) => sum + (parseFloat(row.amount || 0) || 0),
+                    (sum, row) => sum + getIncomeRowAmountXcd(row),
                     0
                   );
                   const purposes = (r.financials?.income || [])
-                    .filter((row) => row.label || row.purpose || parseFloat(row.amount || 0))
+                    .filter((row) => row.label || row.purpose || getIncomeRowAmountXcd(row))
                     .map((row) => getIncomePurpose(row))
                     .join(", ");
                   const dateStr = r.date

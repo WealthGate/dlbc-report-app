@@ -55,6 +55,7 @@ export default function Dashboard({
   const getBranchName = (r) => {
     if (!r) return "";
     if (r.branch === "Other" && r.otherBranch) return r.otherBranch;
+    if (r.branch === "Headquarters") return "Goodwill";
     return r.branch || "";
   };
 

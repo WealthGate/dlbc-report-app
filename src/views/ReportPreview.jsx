@@ -1,5 +1,6 @@
 import React from "react";
 import { DollarSign, Download, Edit, FileText, Printer, Save, Users } from "lucide-react";
+import { getIncomeRowAmountXcd } from "../reporting/serviceRecords";
 import {
   buildServiceReportEmailBody,
   Button,
@@ -7,6 +8,7 @@ import {
   formatExpenseDisplay,
   formatLocalDateKey,
   getServiceLabel,
+  getBranchLabel,
   normalizeKeyPart,
   openMailTo
 } from "./viewShared";
@@ -14,8 +16,7 @@ import {
 export default function ReportPreview({ report, onBack, onEdit }) {
   if (!report) return null;
 
-  const branchName =
-    report.branch === "Other" && report.otherBranch ? report.otherBranch : report.branch;
+  const branchName = getBranchLabel(report);
 
   const totalAttendance = (() => {
     const a = report.attendance || {};
@@ -27,9 +28,9 @@ export default function ReportPreview({ report, onBack, onEdit }) {
 
   const income = report.financials?.income || [];
   const expenses = report.financials?.expenses || [];
-  const incomeTotal = income.reduce((s, r) => s + (parseFloat(r.amount || 0) || 0), 0);
+  const incomeTotal = income.reduce((s, r) => s + getIncomeRowAmountXcd(r), 0);
   const expenseTotal = expenses.reduce((s, r) => s + (parseFloat(r.amount || 0) || 0), 0);
-  const branchLabel = report.branch === "Other" && report.otherBranch ? report.otherBranch : report.branch;
+  const branchLabel = getBranchLabel(report);
 
   const handleEmailReport = () => {
     const subject = `Service Report - ${branchLabel || "Branch"} - ${report.date || ""}`.trim();
@@ -158,7 +159,9 @@ export default function ReportPreview({ report, onBack, onEdit }) {
                     <tr key={idx} className="border-b border-slate-100">
                       <td className="py-1 pr-2">{row.label}</td>
                       <td className="py-1 text-right">
-                        {parseFloat(row.amount || 0).toFixed(2)}
+                        {row.currency && row.currency !== "XCD"
+                          ? `${row.currency} ${(parseFloat(row.amount || 0) || 0).toFixed(2)} / EC ${getIncomeRowAmountXcd(row).toFixed(2)}`
+                          : getIncomeRowAmountXcd(row).toFixed(2)}
                       </td>
                     </tr>
                   ))}
