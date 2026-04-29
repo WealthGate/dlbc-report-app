@@ -23,7 +23,8 @@ export default function ReportPreview({ report, onBack, onEdit }) {
     const m = parseInt(a.men || 0, 10);
     const w = parseInt(a.women || 0, 10);
     const c = parseInt(a.children || 0, 10);
-    return (m || 0) + (w || 0) + (c || 0);
+    const y = parseInt(a.youth || 0, 10);
+    return (m || 0) + (w || 0) + (c || 0) + (y || 0);
   })();
 
   const income = report.financials?.income || [];
@@ -128,7 +129,7 @@ export default function ReportPreview({ report, onBack, onEdit }) {
             <Users size={18} className="text-blue-700" />
             Attendance
           </h3>
-          <div className="grid md:grid-cols-4 gap-3 text-sm">
+          <div className="grid md:grid-cols-5 gap-3 text-sm">
             <div>
               <span className="font-semibold">Men:</span> {report.attendance?.men || 0}
             </div>
@@ -137,6 +138,9 @@ export default function ReportPreview({ report, onBack, onEdit }) {
             </div>
             <div>
               <span className="font-semibold">Children:</span> {report.attendance?.children || 0}
+            </div>
+            <div>
+              <span className="font-semibold">Youth:</span> {report.attendance?.youth || 0}
             </div>
             <div>
               <span className="font-semibold">Total:</span> {totalAttendance}

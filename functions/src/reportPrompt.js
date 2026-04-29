@@ -2,6 +2,7 @@ export const MONTHLY_REPORT_PROMPT_VERSION = "church-monthly-report-v1";
 
 const REQUIRED_HEADINGS = [
   "Title",
+  "Overview",
   "Introduction",
   "Summary of Activities",
   "Branch / Department Reports",
@@ -28,6 +29,9 @@ export const buildMonthlyChurchReportPrompt = ({
     `If some information is missing, state it neutrally rather than guessing.`,
     `Your role is to improve grammar, clarity, structure, tone, readability, flow, and professionalism only.`,
     `Use formal, respectful church administrative language.`,
+    `Place the Overview section immediately after the Title.`,
+    `In the Overview section, include easy-to-read plain text tables for overall attendance, service-type attendance, and per-location/per-service attendance.`,
+    `For each service type and each location/service-type row, show services held, cumulative attendance, Men, Women, Children, Youth if present, New Visitors, the average calculation in the form cumulative divided by services held, the resulting average, minimum, and maximum.`,
     `Merge duplicate or overlapping entries carefully without losing facts.`,
     `If no specific challenge was reported, state that no specific challenge was explicitly reported.`,
     `If no recommendation can be grounded in the source data, provide cautious administrative recommendations based on the reported gaps only.`,

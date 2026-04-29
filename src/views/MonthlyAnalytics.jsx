@@ -43,6 +43,7 @@ function buildMonthlyLetter(monthLabel, summary, countryLabel) {
     totalMen,
     totalWomen,
     totalChildren,
+    totalYouth,
     totalNewVisitors,
     totalIncome,
     totalExpense,
@@ -51,10 +52,11 @@ function buildMonthlyLetter(monthLabel, summary, countryLabel) {
     serviceCount,
     monthReports,
     notesForMonth,
-    serviceRecordSummary
+    serviceRecordSummary,
+    monthlyReportOverview
   } = summary;
 
-  const grandTotal = totalMen + totalWomen + totalChildren;
+  const grandTotal = totalMen + totalWomen + totalChildren + (totalYouth || 0);
   const branchCount = branchSummaries.length;
   const countryName = countryLabel || "your country";
 
@@ -64,7 +66,17 @@ function buildMonthlyLetter(monthLabel, summary, countryLabel) {
 
   body += `OVERVIEW\n`;
   body += `During the month, a total of ${serviceCount} services and meetings were held across ${branchCount} branch location(s).\n`;
-  body += `The total cumulative attendance was ${grandTotal} people: Men – ${totalMen}, Women – ${totalWomen}, Children – ${totalChildren}.\n\n`;
+  body += `The total cumulative attendance was ${grandTotal} people: Men – ${totalMen}, Women – ${totalWomen}, Children – ${totalChildren}, Youth – ${totalYouth || 0}.\n`;
+  body += `Overall average attendance: ${(monthlyReportOverview?.overall?.averageAttendance || 0).toFixed(1)} (${monthlyReportOverview?.overall?.calculation || `${grandTotal} / ${serviceCount} = ${(serviceCount ? grandTotal / serviceCount : 0).toFixed(1)}`}).\n\n`;
+
+  if ((monthlyReportOverview?.serviceTypes || []).length > 0) {
+    body += `SERVICE TYPE OVERVIEW\n`;
+    body += `Service Type | Held | Cumulative | Average Calculation | Average | Minimum | Maximum\n`;
+    monthlyReportOverview.serviceTypes.forEach((row) => {
+      body += `${row.serviceType} | ${row.serviceCount} | ${row.attendance.total} | ${row.calculation} | ${row.averageAttendance.toFixed(1)} | ${row.minAttendance} | ${row.maxAttendance}\n`;
+    });
+    body += `\n`;
+  }
 
   body += `New visitors recorded: ${totalNewVisitors || 0}.\n\n`;
 
@@ -217,6 +229,96 @@ const buildFinancialLedgerEntries = (summary) => {
   });
 };
 
+const toWholeNumber = (value) => {
+  const parsed = parseInt(value || 0, 10);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const getAttendanceBreakdown = (report = {}) => {
+  const attendance = report.attendance || {};
+  const men = toWholeNumber(attendance.men);
+  const women = toWholeNumber(attendance.women);
+  const children = toWholeNumber(attendance.children);
+  const youth = toWholeNumber(attendance.youth);
+  const newVisitors = toWholeNumber(report.newVisitors ?? attendance.newVisitors);
+  return {
+    men,
+    women,
+    children,
+    youth,
+    newVisitors,
+    total: men + women + children + youth
+  };
+};
+
+const createOverviewBucket = ({ branch = "", serviceType = "" } = {}) => ({
+  branch,
+  serviceType,
+  serviceCount: 0,
+  attendance: { men: 0, women: 0, children: 0, youth: 0, newVisitors: 0, total: 0 },
+  averageAttendance: 0,
+  minAttendance: 0,
+  maxAttendance: 0,
+  calculation: "0 / 0 = 0.0"
+});
+
+const addReportToOverviewBucket = (bucket, report) => {
+  const attendance = getAttendanceBreakdown(report);
+  bucket.serviceCount += 1;
+  bucket.attendance.men += attendance.men;
+  bucket.attendance.women += attendance.women;
+  bucket.attendance.children += attendance.children;
+  bucket.attendance.youth += attendance.youth;
+  bucket.attendance.newVisitors += attendance.newVisitors;
+  bucket.attendance.total += attendance.total;
+  bucket.minAttendance =
+    bucket.serviceCount === 1
+      ? attendance.total
+      : Math.min(bucket.minAttendance, attendance.total);
+  bucket.maxAttendance = Math.max(bucket.maxAttendance, attendance.total);
+  bucket.averageAttendance = bucket.serviceCount
+    ? bucket.attendance.total / bucket.serviceCount
+    : 0;
+  bucket.calculation = `${bucket.attendance.total} / ${bucket.serviceCount} = ${bucket.averageAttendance.toFixed(1)}`;
+};
+
+const buildMonthlyReportOverview = (monthReports = []) => {
+  const overall = createOverviewBucket({ serviceType: "All services" });
+  const countryServiceMap = new Map();
+  const branchServiceMap = new Map();
+
+  monthReports.forEach((report) => {
+    const branch = getReportBranchName(report);
+    const serviceType = getServiceLabel(report);
+    addReportToOverviewBucket(overall, report);
+
+    if (!countryServiceMap.has(serviceType)) {
+      countryServiceMap.set(serviceType, createOverviewBucket({ serviceType }));
+    }
+    addReportToOverviewBucket(countryServiceMap.get(serviceType), report);
+
+    const branchServiceKey = `${branch}__${serviceType}`;
+    if (!branchServiceMap.has(branchServiceKey)) {
+      branchServiceMap.set(
+        branchServiceKey,
+        createOverviewBucket({ branch, serviceType })
+      );
+    }
+    addReportToOverviewBucket(branchServiceMap.get(branchServiceKey), report);
+  });
+
+  return {
+    overall,
+    serviceTypes: Array.from(countryServiceMap.values()).sort((a, b) =>
+      a.serviceType.localeCompare(b.serviceType)
+    ),
+    branchServiceTypes: Array.from(branchServiceMap.values()).sort((a, b) => {
+      const branchCompare = a.branch.localeCompare(b.branch);
+      return branchCompare || a.serviceType.localeCompare(b.serviceType);
+    })
+  };
+};
+
 export default function MonthlyAnalytics({
   reports,
   userProfile,
@@ -304,6 +406,7 @@ export default function MonthlyAnalytics({
     let totalMen = 0;
     let totalWomen = 0;
     let totalChildren = 0;
+    let totalYouth = 0;
     let totalNewVisitors = 0;
     let totalIncome = 0;
     let totalExpenseFromReports = 0;
@@ -328,11 +431,13 @@ export default function MonthlyAnalytics({
       const m = parseInt(a.men || 0, 10) || 0;
       const w = parseInt(a.women || 0, 10) || 0;
       const c = parseInt(a.children || 0, 10) || 0;
+      const y = parseInt(a.youth || 0, 10) || 0;
       const visitors = parseInt(r.newVisitors ?? a.newVisitors ?? 0, 10) || 0;
 
       totalMen += m;
       totalWomen += w;
       totalChildren += c;
+      totalYouth += y;
       totalNewVisitors += visitors;
 
       const income = (r.financials?.income || []).reduce(
@@ -404,7 +509,8 @@ export default function MonthlyAnalytics({
           const t =
             (parseInt(a.men || 0, 10) || 0) +
             (parseInt(a.women || 0, 10) || 0) +
-            (parseInt(a.children || 0, 10) || 0);
+            (parseInt(a.children || 0, 10) || 0) +
+            (parseInt(a.youth || 0, 10) || 0);
           totalAtt += t;
           if (t < minAtt) minAtt = t;
           if (t > maxAtt) maxAtt = t;
@@ -478,7 +584,8 @@ export default function MonthlyAnalytics({
       const totalAtt =
         (parseInt(a.men || 0, 10) || 0) +
         (parseInt(a.women || 0, 10) || 0) +
-        (parseInt(a.children || 0, 10) || 0);
+        (parseInt(a.children || 0, 10) || 0) +
+        (parseInt(a.youth || 0, 10) || 0);
       if (!attendanceByDate[dateKey]) attendanceByDate[dateKey] = { date: dateKey };
       attendanceByDate[dateKey][branchName] =
         (attendanceByDate[dateKey][branchName] || 0) + totalAtt;
@@ -512,10 +619,12 @@ export default function MonthlyAnalytics({
     const computedSummary = {
       monthReports,
       serviceRecordSummary: buildMonthlyServiceSummary(monthReports),
+      monthlyReportOverview: buildMonthlyReportOverview(monthReports),
       branchSummaries,
       totalMen,
       totalWomen,
       totalChildren,
+      totalYouth,
       totalNewVisitors,
       totalIncome,
       totalExpense,
@@ -2015,7 +2124,7 @@ export default function MonthlyAnalytics({
   <h3 className="font-semibold mb-4 text-slate-800">
     Report-Ready Monthly Statistics
   </h3>
-  <div className="grid md:grid-cols-4 gap-3 text-sm mb-5">
+  <div className="grid md:grid-cols-5 gap-3 text-sm mb-5">
     <div className="rounded border border-slate-200 bg-slate-50 p-3">
       <p className="text-xs uppercase font-semibold text-slate-500">Services</p>
       <p className="text-xl font-bold">{summary.serviceRecordSummary?.totals?.serviceCount || 0}</p>
@@ -2029,11 +2138,93 @@ export default function MonthlyAnalytics({
       <p className="text-xl font-bold">{summary.serviceRecordSummary?.totals?.newVisitors || 0}</p>
     </div>
     <div className="rounded border border-slate-200 bg-slate-50 p-3">
+      <p className="text-xs uppercase font-semibold text-slate-500">Youth</p>
+      <p className="text-xl font-bold">{summary.serviceRecordSummary?.totals?.youth || 0}</p>
+    </div>
+    <div className="rounded border border-slate-200 bg-slate-50 p-3">
       <p className="text-xs uppercase font-semibold text-slate-500">Income</p>
       <p className="text-xl font-bold">
         XCD {Number(summary.serviceRecordSummary?.totals?.income || 0).toFixed(2)}
       </p>
     </div>
+  </div>
+
+  <div className="mb-6 rounded border border-blue-100 bg-blue-50 p-4 text-sm">
+    <div className="grid md:grid-cols-4 gap-3">
+      <div>
+        <p className="text-xs uppercase font-semibold text-blue-800">Total Services</p>
+        <p className="text-xl font-bold text-blue-950">
+          {summary.monthlyReportOverview?.overall?.serviceCount || 0}
+        </p>
+      </div>
+      <div>
+        <p className="text-xs uppercase font-semibold text-blue-800">Cumulative Attendance</p>
+        <p className="text-xl font-bold text-blue-950">
+          {summary.monthlyReportOverview?.overall?.attendance?.total || 0}
+        </p>
+      </div>
+      <div>
+        <p className="text-xs uppercase font-semibold text-blue-800">Average Attendance</p>
+        <p className="text-xl font-bold text-blue-950">
+          {(summary.monthlyReportOverview?.overall?.averageAttendance || 0).toFixed(1)}
+        </p>
+      </div>
+      <div>
+        <p className="text-xs uppercase font-semibold text-blue-800">Calculation</p>
+        <p className="text-base font-semibold text-blue-950">
+          {summary.monthlyReportOverview?.overall?.calculation || "0 / 0 = 0.0"}
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div className="mb-6 overflow-auto rounded border border-slate-200">
+    <table className="w-full text-xs md:text-sm">
+      <thead className="bg-slate-100">
+        <tr>
+          <th className="px-2 py-2 text-left">Location</th>
+          <th className="px-2 py-2 text-left">Service Type</th>
+          <th className="px-2 py-2 text-right">Held</th>
+          <th className="px-2 py-2 text-right">Men</th>
+          <th className="px-2 py-2 text-right">Women</th>
+          <th className="px-2 py-2 text-right">Children</th>
+          <th className="px-2 py-2 text-right">Youth</th>
+          <th className="px-2 py-2 text-right">Visitors</th>
+          <th className="px-2 py-2 text-right">Cumulative</th>
+          <th className="px-2 py-2 text-left">Average Calculation</th>
+          <th className="px-2 py-2 text-right">Average</th>
+          <th className="px-2 py-2 text-right">Min</th>
+          <th className="px-2 py-2 text-right">Max</th>
+        </tr>
+      </thead>
+      <tbody>
+        {(summary.monthlyReportOverview?.branchServiceTypes || []).length === 0 ? (
+          <tr>
+            <td className="px-2 py-3 text-slate-500" colSpan={13}>
+              No service overview rows available for this month.
+            </td>
+          </tr>
+        ) : (
+          summary.monthlyReportOverview.branchServiceTypes.map((row) => (
+            <tr key={`${row.branch}-${row.serviceType}`} className="border-t border-slate-100">
+              <td className="px-2 py-2 whitespace-nowrap">{row.branch}</td>
+              <td className="px-2 py-2 whitespace-nowrap">{row.serviceType}</td>
+              <td className="px-2 py-2 text-right">{row.serviceCount}</td>
+              <td className="px-2 py-2 text-right">{row.attendance.men}</td>
+              <td className="px-2 py-2 text-right">{row.attendance.women}</td>
+              <td className="px-2 py-2 text-right">{row.attendance.children}</td>
+              <td className="px-2 py-2 text-right">{row.attendance.youth}</td>
+              <td className="px-2 py-2 text-right">{row.attendance.newVisitors}</td>
+              <td className="px-2 py-2 text-right font-semibold">{row.attendance.total}</td>
+              <td className="px-2 py-2 whitespace-nowrap">{row.calculation}</td>
+              <td className="px-2 py-2 text-right">{row.averageAttendance.toFixed(1)}</td>
+              <td className="px-2 py-2 text-right">{row.minAttendance}</td>
+              <td className="px-2 py-2 text-right">{row.maxAttendance}</td>
+            </tr>
+          ))
+        )}
+      </tbody>
+    </table>
   </div>
 
   <div className="grid lg:grid-cols-2 gap-5">
@@ -2149,6 +2340,7 @@ export default function MonthlyAnalytics({
                   <th className="px-2 py-1 text-right">Men</th>
                   <th className="px-2 py-1 text-right">Women</th>
                   <th className="px-2 py-1 text-right">Children</th>
+                  <th className="px-2 py-1 text-right">Youth</th>
                   <th className="px-2 py-1 text-right">Visitors</th>
                   <th className="px-2 py-1 text-right">Total</th>
                   <th className="px-2 py-1 text-right">Income (XCD)</th>
@@ -2161,8 +2353,9 @@ export default function MonthlyAnalytics({
                   const men = parseInt(a.men || 0, 10) || 0;
                   const women = parseInt(a.women || 0, 10) || 0;
                   const children = parseInt(a.children || 0, 10) || 0;
+                  const youth = parseInt(a.youth || 0, 10) || 0;
                   const visitors = parseInt(r.newVisitors ?? a.newVisitors ?? 0, 10) || 0;
-                  const total = men + women + children;
+                  const total = men + women + children + youth;
                   const income = (r.financials?.income || []).reduce(
                     (sum, row) => sum + getIncomeRowAmountXcd(row),
                     0
@@ -2188,6 +2381,7 @@ export default function MonthlyAnalytics({
                       <td className="px-2 py-1 text-right">{men}</td>
                       <td className="px-2 py-1 text-right">{women}</td>
                       <td className="px-2 py-1 text-right">{children}</td>
+                      <td className="px-2 py-1 text-right">{youth}</td>
                       <td className="px-2 py-1 text-right">{visitors}</td>
                       <td className="px-2 py-1 text-right font-semibold">{total}</td>
                       <td className="px-2 py-1 text-right">
@@ -2200,7 +2394,7 @@ export default function MonthlyAnalytics({
               </tbody>
               <tfoot className="bg-slate-50 border-t border-slate-200">
                 <tr>
-                  <td className="px-2 py-1 font-semibold" colSpan={8}>
+                  <td className="px-2 py-1 font-semibold" colSpan={9}>
                     Monthly Income Total
                   </td>
                   <td className="px-2 py-1 text-right font-semibold">

@@ -122,13 +122,15 @@ export const getAttendanceTotals = (record = {}) => {
   const men = parseWholeNumber(attendance.men);
   const women = parseWholeNumber(attendance.women);
   const children = parseWholeNumber(attendance.children);
+  const youth = parseWholeNumber(attendance.youth);
   const newVisitors = parseWholeNumber(record.newVisitors ?? attendance.newVisitors);
   return {
     men,
     women,
     children,
+    youth,
     newVisitors,
-    total: men + women + children
+    total: men + women + children + youth
   };
 };
 
@@ -229,6 +231,7 @@ export const validateServiceRecord = ({
     ["Men", attendance.men],
     ["Women", attendance.women],
     ["Children", attendance.children],
+    ["Youth", attendance.youth],
     ["New visitors", newVisitors],
     ...incomeRows.map((row, index) => [`Income row ${index + 1}`, row.amount])
   ];
@@ -270,6 +273,7 @@ export const buildMonthlyServiceSummary = (records = []) => {
     men: 0,
     women: 0,
     children: 0,
+    youth: 0,
     newVisitors: 0,
     attendance: 0,
     income: 0
@@ -279,6 +283,7 @@ export const buildMonthlyServiceSummary = (records = []) => {
     totals.men += record.attendance.men;
     totals.women += record.attendance.women;
     totals.children += record.attendance.children;
+    totals.youth += record.attendance.youth;
     totals.newVisitors += record.newVisitors;
     totals.attendance += record.totalAttendance;
     totals.income += record.totalIncome;
@@ -287,7 +292,7 @@ export const buildMonthlyServiceSummary = (records = []) => {
       branchMap.set(record.branch, {
         branch: record.branch,
         serviceCount: 0,
-        attendance: { men: 0, women: 0, children: 0, total: 0 },
+        attendance: { men: 0, women: 0, children: 0, youth: 0, total: 0 },
         newVisitors: 0,
         totalIncome: 0,
         serviceTypes: new Map(),
@@ -300,6 +305,7 @@ export const buildMonthlyServiceSummary = (records = []) => {
     branch.attendance.men += record.attendance.men;
     branch.attendance.women += record.attendance.women;
     branch.attendance.children += record.attendance.children;
+    branch.attendance.youth = (branch.attendance.youth || 0) + record.attendance.youth;
     branch.attendance.total += record.totalAttendance;
     branch.newVisitors += record.newVisitors;
     branch.totalIncome += record.totalIncome;
@@ -390,6 +396,7 @@ export const buildServiceRecordsCsv = (records = []) => {
     "Men",
     "Women",
     "Children",
+    "Youth",
     "New Visitors",
     "Total Attendance",
     "Income Total",
@@ -412,6 +419,7 @@ export const buildServiceRecordsCsv = (records = []) => {
       normalized.attendance.men,
       normalized.attendance.women,
       normalized.attendance.children,
+      normalized.attendance.youth,
       normalized.newVisitors,
       normalized.totalAttendance,
       normalized.totalIncome.toFixed(2),

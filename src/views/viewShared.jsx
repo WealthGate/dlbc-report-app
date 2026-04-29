@@ -240,8 +240,9 @@ export const buildServiceReportEmailBody = (report) => {
   const men = parseInt(attendance.men || 0, 10) || 0;
   const women = parseInt(attendance.women || 0, 10) || 0;
   const children = parseInt(attendance.children || 0, 10) || 0;
+  const youth = parseInt(attendance.youth || 0, 10) || 0;
   const newVisitors = parseInt(report.newVisitors ?? attendance.newVisitors ?? 0, 10) || 0;
-  const totalAttendance = men + women + children;
+  const totalAttendance = men + women + children + youth;
   const income = report.financials?.income || [];
   const expenses = report.financials?.expenses || [];
   const incomeTotal = income.reduce((s, r) => s + getIncomeRowAmountXcd(r), 0);
@@ -260,6 +261,7 @@ export const buildServiceReportEmailBody = (report) => {
     `Men: ${men}`,
     `Women: ${women}`,
     `Children: ${children}`,
+    `Youth: ${youth}`,
     `New Visitors: ${newVisitors}`,
     `Total: ${totalAttendance}`,
     ``,
@@ -292,7 +294,10 @@ export const buildServiceReportEmailBody = (report) => {
 
 export const buildMonthlyEmailBody = (monthLabel, countryLabel, summary, customText) => {
   const totalAttendance =
-    (summary?.totalMen || 0) + (summary?.totalWomen || 0) + (summary?.totalChildren || 0);
+    (summary?.totalMen || 0) +
+    (summary?.totalWomen || 0) +
+    (summary?.totalChildren || 0) +
+    (summary?.totalYouth || 0);
   const broughtForward = Number(summary?.balanceBroughtForward || 0);
   const netMovement = (summary?.totalIncome || 0) - (summary?.totalExpense || 0);
   return [
@@ -305,6 +310,7 @@ export const buildMonthlyEmailBody = (monthLabel, countryLabel, summary, customT
     `Men: ${summary?.totalMen || 0}`,
     `Women: ${summary?.totalWomen || 0}`,
     `Children: ${summary?.totalChildren || 0}`,
+    `Youth: ${summary?.totalYouth || 0}`,
     `New Visitors: ${summary?.totalNewVisitors || 0}`,
     `Total: ${totalAttendance}`,
     ``,

@@ -136,6 +136,7 @@ export const normalizeRawReportEntry = (report = {}) => {
   const men = normalizeNumber(attendance.men);
   const women = normalizeNumber(attendance.women);
   const children = normalizeNumber(attendance.children);
+  const youth = normalizeNumber(attendance.youth);
   const newVisitors = normalizeNumber(report.newVisitors ?? attendance.newVisitors);
   const incomeItems = (report.financials?.income || []).map(normalizeIncomeItem);
   const expenseItems = (report.financials?.expenses || []).map((row) =>
@@ -177,8 +178,9 @@ export const normalizeRawReportEntry = (report = {}) => {
       men,
       women,
       children,
+      youth,
       newVisitors,
-      total: men + women + children
+      total: men + women + children + youth
     },
     financials: {
       incomeItems,
@@ -226,6 +228,7 @@ export const compileMonthlyReportData = ({
   let totalMen = 0;
   let totalWomen = 0;
   let totalChildren = 0;
+  let totalYouth = 0;
   let totalNewVisitors = 0;
   let totalIncome = 0;
 
@@ -233,6 +236,7 @@ export const compileMonthlyReportData = ({
     totalMen += entry.attendance.men;
     totalWomen += entry.attendance.women;
     totalChildren += entry.attendance.children;
+    totalYouth += entry.attendance.youth;
     totalNewVisitors += entry.attendance.newVisitors;
     totalIncome += entry.financials.totalIncome;
     serviceTypeCounts.set(
@@ -248,6 +252,7 @@ export const compileMonthlyReportData = ({
           men: 0,
           women: 0,
           children: 0,
+          youth: 0,
           total: 0
         },
         newVisitors: 0,
@@ -264,6 +269,7 @@ export const compileMonthlyReportData = ({
     branchGroup.attendance.men += entry.attendance.men;
     branchGroup.attendance.women += entry.attendance.women;
     branchGroup.attendance.children += entry.attendance.children;
+    branchGroup.attendance.youth += entry.attendance.youth;
     branchGroup.attendance.total += entry.attendance.total;
     branchGroup.newVisitors += entry.attendance.newVisitors;
     branchGroup.totalIncome += entry.financials.totalIncome;
@@ -273,12 +279,25 @@ export const compileMonthlyReportData = ({
     const serviceMetrics = branchGroup.serviceBreakdown.get(entry.serviceType) || {
       serviceType: entry.serviceType,
       count: 0,
+      attendance: {
+        men: 0,
+        women: 0,
+        children: 0,
+        youth: 0,
+        newVisitors: 0
+      },
       totalAttendance: 0,
       minAttendance: 0,
       maxAttendance: 0,
-      averageAttendance: 0
+      averageAttendance: 0,
+      calculation: "0 / 0 = 0.0"
     };
     serviceMetrics.count += 1;
+    serviceMetrics.attendance.men += entry.attendance.men;
+    serviceMetrics.attendance.women += entry.attendance.women;
+    serviceMetrics.attendance.children += entry.attendance.children;
+    serviceMetrics.attendance.youth += entry.attendance.youth;
+    serviceMetrics.attendance.newVisitors += entry.attendance.newVisitors;
     serviceMetrics.totalAttendance += entry.attendance.total;
     serviceMetrics.minAttendance =
       serviceMetrics.count === 1
@@ -291,6 +310,7 @@ export const compileMonthlyReportData = ({
     serviceMetrics.averageAttendance = serviceMetrics.count
       ? serviceMetrics.totalAttendance / serviceMetrics.count
       : 0;
+    serviceMetrics.calculation = `${serviceMetrics.totalAttendance} / ${serviceMetrics.count} = ${serviceMetrics.averageAttendance.toFixed(1)}`;
     branchGroup.serviceBreakdown.set(entry.serviceType, serviceMetrics);
 
     if (entry.isSpecialProgramme) {
@@ -377,17 +397,31 @@ export const compileMonthlyReportData = ({
     const stat = countryServiceStats.get(entry.serviceType) || {
       serviceType: entry.serviceType,
       count: 0,
+      attendance: {
+        men: 0,
+        women: 0,
+        children: 0,
+        youth: 0,
+        newVisitors: 0
+      },
       totalAttendance: 0,
       minAttendance: 0,
       maxAttendance: 0,
-      averageAttendance: 0
+      averageAttendance: 0,
+      calculation: "0 / 0 = 0.0"
     };
     stat.count += 1;
+    stat.attendance.men += entry.attendance.men;
+    stat.attendance.women += entry.attendance.women;
+    stat.attendance.children += entry.attendance.children;
+    stat.attendance.youth += entry.attendance.youth;
+    stat.attendance.newVisitors += entry.attendance.newVisitors;
     stat.totalAttendance += entry.attendance.total;
     stat.minAttendance =
       stat.count === 1 ? entry.attendance.total : Math.min(stat.minAttendance, entry.attendance.total);
     stat.maxAttendance = Math.max(stat.maxAttendance, entry.attendance.total);
     stat.averageAttendance = stat.count ? stat.totalAttendance / stat.count : 0;
+    stat.calculation = `${stat.totalAttendance} / ${stat.count} = ${stat.averageAttendance.toFixed(1)}`;
     countryServiceStats.set(entry.serviceType, stat);
   }
 
@@ -405,8 +439,9 @@ export const compileMonthlyReportData = ({
       men: totalMen,
       women: totalWomen,
       children: totalChildren,
+      youth: totalYouth,
       newVisitors: totalNewVisitors,
-      total: totalMen + totalWomen + totalChildren
+      total: totalMen + totalWomen + totalChildren + totalYouth
     },
     serviceTypeCounts: Array.from(serviceTypeCounts.entries())
       .map(([serviceType, count]) => ({ serviceType, count }))
@@ -468,10 +503,19 @@ export const buildCompiledReportText = ({ rawEntries = [], structuredCompilation
     `- Men: ${attendanceTotals.men || 0}`,
     `- Women: ${attendanceTotals.women || 0}`,
     `- Children: ${attendanceTotals.children || 0}`,
+    `- Youth: ${attendanceTotals.youth || 0}`,
     `- New Visitors: ${attendanceTotals.newVisitors || 0}`,
     `- Total: ${attendanceTotals.total || 0}`,
     ``
   ];
+
+  const overallAverage =
+    meta.serviceCount > 0 ? normalizeNumber(attendanceTotals.total) / meta.serviceCount : 0;
+  lines.push(`Monthly Attendance Overview`);
+  lines.push(
+    `Overall average attendance: ${normalizeNumber(attendanceTotals.total)} / ${meta.serviceCount || 0} = ${overallAverage.toFixed(1)}`
+  );
+  lines.push(``);
 
   const serviceTypeCounts = structuredCompilation.serviceTypeCounts || [];
   if (serviceTypeCounts.length > 0) {
@@ -484,12 +528,25 @@ export const buildCompiledReportText = ({ rawEntries = [], structuredCompilation
 
   const branchReports = structuredCompilation.branchReports || [];
   if (branchReports.length > 0) {
+    lines.push(`Branch and Service Type Attendance Overview`);
+    lines.push(
+      `Location | Service Type | Held | Men | Women | Children | Youth | New Visitors | Cumulative Attendance | Average Calculation | Average | Min | Max`
+    );
+    for (const branch of branchReports) {
+      for (const service of branch.serviceBreakdown || []) {
+        lines.push(
+          `${branch.branch} | ${service.serviceType} | ${service.count} | ${service.attendance?.men || 0} | ${service.attendance?.women || 0} | ${service.attendance?.children || 0} | ${service.attendance?.youth || 0} | ${service.attendance?.newVisitors || 0} | ${service.totalAttendance || 0} | ${service.calculation || `${service.totalAttendance || 0} / ${service.count || 0} = ${normalizeNumber(service.averageAttendance).toFixed(1)}`} | ${normalizeNumber(service.averageAttendance).toFixed(1)} | ${service.minAttendance || 0} | ${service.maxAttendance || 0}`
+        );
+      }
+    }
+    lines.push(``);
+
     lines.push(`Branch Reports`);
     for (const branch of branchReports) {
       lines.push(`- ${branch.branch}`);
       lines.push(`  Services: ${branch.serviceCount}`);
       lines.push(
-        `  Attendance: Men ${branch.attendance?.men || 0}, Women ${branch.attendance?.women || 0}, Children ${branch.attendance?.children || 0}, New Visitors ${branch.newVisitors || 0}, Total ${branch.attendance?.total || 0}`
+        `  Attendance: Men ${branch.attendance?.men || 0}, Women ${branch.attendance?.women || 0}, Children ${branch.attendance?.children || 0}, Youth ${branch.attendance?.youth || 0}, New Visitors ${branch.newVisitors || 0}, Total ${branch.attendance?.total || 0}`
       );
       lines.push(`  Total Income (XCD): ${normalizeNumber(branch.totalIncome).toFixed(2)}`);
       lines.push(
@@ -515,9 +572,10 @@ export const buildCompiledReportText = ({ rawEntries = [], structuredCompilation
   const countryServiceStats = structuredCompilation.countryServiceStats || [];
   if (countryServiceStats.length > 0) {
     lines.push(`Country-wide Service Type Statistics`);
+    lines.push(`Service Type | Held | Cumulative Attendance | Average Calculation | Average | Min | Max`);
     for (const service of countryServiceStats) {
       lines.push(
-        `- ${service.serviceType}: ${service.count} service(s), average ${normalizeNumber(service.averageAttendance).toFixed(1)}, min ${service.minAttendance || 0}, max ${service.maxAttendance || 0}`
+        `${service.serviceType} | ${service.count} | ${service.totalAttendance || 0} | ${service.calculation || `${service.totalAttendance || 0} / ${service.count || 0} = ${normalizeNumber(service.averageAttendance).toFixed(1)}`} | ${normalizeNumber(service.averageAttendance).toFixed(1)} | ${service.minAttendance || 0} | ${service.maxAttendance || 0}`
       );
     }
     lines.push(``);
@@ -555,7 +613,7 @@ export const buildCompiledReportText = ({ rawEntries = [], structuredCompilation
   } else {
     for (const entry of rawEntries) {
       lines.push(
-        `- ${entry.date || "-"} | ${entry.branch || "-"} | ${entry.serviceType || "-"} | Attendance ${entry.attendance?.total || 0} (Men ${entry.attendance?.men || 0}, Women ${entry.attendance?.women || 0}, Children ${entry.attendance?.children || 0}) | Income XCD ${normalizeNumber(entry.financials?.totalIncome).toFixed(2)} | Expense XCD ${normalizeNumber(entry.financials?.totalExpense).toFixed(2)}`
+        `- ${entry.date || "-"} | ${entry.branch || "-"} | ${entry.serviceType || "-"} | Attendance ${entry.attendance?.total || 0} (Men ${entry.attendance?.men || 0}, Women ${entry.attendance?.women || 0}, Children ${entry.attendance?.children || 0}, Youth ${entry.attendance?.youth || 0}) | Income XCD ${normalizeNumber(entry.financials?.totalIncome).toFixed(2)} | Expense XCD ${normalizeNumber(entry.financials?.totalExpense).toFixed(2)}`
       );
       if (entry.attendance?.newVisitors) {
         lines.push(`  New visitors: ${entry.attendance.newVisitors}`);

@@ -52,6 +52,7 @@ export default function ReportForm({ initialData, userBranch, onSave, onCancel }
     men: initialData?.attendance?.men || "",
     women: initialData?.attendance?.women || "",
     children: initialData?.attendance?.children || "",
+    youth: initialData?.attendance?.youth || "",
     newVisitors:
       initialData?.newVisitors ??
       initialData?.attendance?.newVisitors ??
@@ -183,6 +184,7 @@ export default function ReportForm({ initialData, userBranch, onSave, onCancel }
           men: attendance.men || "0",
           women: attendance.women || "0",
           children: attendance.children || "0",
+          youth: attendance.youth || "0",
           newVisitors: attendance.newVisitors || "0"
         },
         newVisitors: attendance.newVisitors || "0",
@@ -379,6 +381,14 @@ export default function ReportForm({ initialData, userBranch, onSave, onCancel }
                   className="w-full border rounded px-3 py-3 text-base"
                   value={attendance.children}
                   onChange={(e) => handleAttendanceChange("children", e.target.value)}
+                  inputMode="numeric"
+                />
+              </InputGroup>
+              <InputGroup label="Youth">
+                <input
+                  className="w-full border rounded px-3 py-3 text-base"
+                  value={attendance.youth}
+                  onChange={(e) => handleAttendanceChange("youth", e.target.value)}
                   inputMode="numeric"
                 />
               </InputGroup>
