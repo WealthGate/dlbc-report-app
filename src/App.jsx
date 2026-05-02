@@ -178,6 +178,33 @@ function PrintStyles() {
 
           .monthly-table-card {
             padding: 6mm !important;
+            overflow: visible !important;
+          }
+
+          .printable-area .overflow-auto,
+          .printable-area .overflow-x-auto,
+          .printable-area [class*="overflow-auto"],
+          .printable-area [class*="overflow-x-auto"] {
+            overflow: visible !important;
+            max-height: none !important;
+            width: 100% !important;
+          }
+
+          .printable-area table {
+            width: 100% !important;
+            min-width: 0 !important;
+            table-layout: fixed !important;
+            border-collapse: collapse !important;
+          }
+
+          .printable-area th,
+          .printable-area td {
+            white-space: normal !important;
+            overflow-wrap: anywhere !important;
+            word-break: break-word !important;
+            font-size: 8.5px !important;
+            line-height: 1.25 !important;
+            padding: 3px !important;
           }
 
           .no-print,

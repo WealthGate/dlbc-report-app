@@ -1348,7 +1348,8 @@ export default function MonthlyAnalytics({
           <meta charset="utf-8" />
           <title>${escapeHtml(headquartersReport.title)}</title>
           <style>
-            body { font-family: Arial, sans-serif; margin: 24px; color: #111827; }
+            @page { size: landscape; margin: 10mm; }
+            body { font-family: Arial, sans-serif; margin: 18px; color: #111827; }
             h1, h2 { margin: 0 0 12px; }
             p { line-height: 1.55; }
             .intro, .overview { margin-bottom: 16px; }
@@ -1356,9 +1357,14 @@ export default function MonthlyAnalytics({
             .overview-card { border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; background: #f8fafc; }
             .overview-card .label { font-size: 11px; text-transform: uppercase; color: #475569; font-weight: 700; }
             .overview-card .value { font-size: 18px; font-weight: 700; margin-top: 4px; }
-            table { width: 100%; border-collapse: collapse; margin: 12px 0 24px; }
-            th, td { border: 1px solid #cbd5e1; padding: 8px; font-size: 12px; vertical-align: top; }
+            table { width: 100%; min-width: 0; table-layout: fixed; border-collapse: collapse; margin: 12px 0 24px; }
+            th, td { border: 1px solid #cbd5e1; padding: 5px; font-size: 10px; line-height: 1.25; vertical-align: top; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
             th { background: #f1f5f9; text-align: left; }
+            @media print {
+              body { margin: 0; }
+              .overview-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+              th, td { font-size: 9px; padding: 4px; }
+            }
           </style>
         </head>
         <body>
@@ -2523,8 +2529,8 @@ export default function MonthlyAnalytics({
           </div>
         </div>
 
-        <div className="mb-6 overflow-auto rounded border border-slate-200">
-          <table className="w-full min-w-[1080px] text-xs md:text-sm">
+        <div className="mb-6 overflow-auto rounded border border-slate-200 print:overflow-visible">
+          <table className="w-full min-w-[1080px] text-xs md:text-sm print:min-w-0 print:table-fixed print:text-[8.5px]">
             <caption className="bg-slate-100 px-3 py-2 text-left font-semibold text-slate-800">
               Core Service Monthly Summary
             </caption>
@@ -2565,8 +2571,8 @@ export default function MonthlyAnalytics({
           </table>
         </div>
 
-        <div className="mb-6 overflow-auto rounded border border-slate-200">
-          <table className="w-full min-w-[1180px] text-xs md:text-sm">
+        <div className="mb-6 overflow-auto rounded border border-slate-200 print:overflow-visible">
+          <table className="w-full min-w-[1180px] text-xs md:text-sm print:min-w-0 print:table-fixed print:text-[8.5px]">
             <caption className="bg-slate-100 px-3 py-2 text-left font-semibold text-slate-800">
               Detailed Monthly Service Records
             </caption>
@@ -2613,8 +2619,8 @@ export default function MonthlyAnalytics({
           </table>
         </div>
 
-        <div className="overflow-auto rounded border border-slate-200">
-          <table className="w-full min-w-[1380px] text-xs md:text-sm">
+        <div className="overflow-auto rounded border border-slate-200 print:overflow-visible">
+          <table className="w-full min-w-[1380px] text-xs md:text-sm print:min-w-0 print:table-fixed print:text-[8.5px]">
             <caption className="bg-slate-100 px-3 py-2 text-left font-semibold text-slate-800">
               Special Programme Attendance
             </caption>
@@ -2951,8 +2957,8 @@ export default function MonthlyAnalytics({
             <MapPin size={14} className="text-blue-700" />
             {branchName}
           </h4>
-          <div className="overflow-auto rounded border border-slate-200">
-            <table className="w-full text-xs md:text-sm">
+          <div className="overflow-auto rounded border border-slate-200 print:overflow-visible">
+            <table className="w-full text-xs md:text-sm print:table-fixed print:text-[8.5px]">
               <thead className="bg-slate-100">
                 <tr>
                   <th className="px-2 py-1 text-left">Date</th>
@@ -3045,8 +3051,8 @@ export default function MonthlyAnalytics({
     <p><span className="font-semibold">Closing Balance (XCD):</span> {Number(summary.closingBalance || 0).toFixed(2)}</p>
   </div>
   <h4 className="font-semibold mb-2 text-slate-700">Financial Ledger</h4>
-  <div className="overflow-auto rounded border border-slate-200 mb-4">
-    <table className="w-full text-xs md:text-sm">
+  <div className="overflow-auto rounded border border-slate-200 mb-4 print:overflow-visible">
+    <table className="w-full text-xs md:text-sm print:table-fixed print:text-[8.5px]">
       <thead className="bg-slate-100">
         <tr>
           <th className="px-2 py-1 text-left">Date</th>
@@ -3084,8 +3090,8 @@ export default function MonthlyAnalytics({
     </table>
   </div>
   <h4 className="font-semibold mb-2 text-slate-700">Income Register (Auto-imported from services)</h4>
-  <div className="overflow-auto rounded border border-slate-200 mb-4">
-    <table className="w-full text-xs md:text-sm">
+  <div className="overflow-auto rounded border border-slate-200 mb-4 print:overflow-visible">
+    <table className="w-full text-xs md:text-sm print:table-fixed print:text-[8.5px]">
       <thead className="bg-slate-100">
         <tr>
           <th className="px-2 py-1 text-left">Date</th>
@@ -3119,8 +3125,8 @@ export default function MonthlyAnalytics({
     </table>
   </div>
   <h4 className="font-semibold mb-2 text-slate-700">Expense Register</h4>
-  <div className="overflow-auto rounded border border-slate-200">
-    <table className="w-full text-xs md:text-sm">
+  <div className="overflow-auto rounded border border-slate-200 print:overflow-visible">
+    <table className="w-full text-xs md:text-sm print:table-fixed print:text-[8.5px]">
       <thead className="bg-slate-100">
         <tr>
           <th className="px-2 py-1 text-left">Date</th>
