@@ -860,6 +860,7 @@ export default function ChurchReportApp() {
 
           {view === "new-report" && (
             <ReportForm
+              key={editingReport?.id || `new-${userProfile?.branch || "branch"}`}
               initialData={editingReport}
               userBranch={userProfile?.branch}
               onSave={handleSaveReport}

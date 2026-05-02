@@ -132,10 +132,15 @@ export default function ReportForm({ initialData, userBranch, onSave, onCancel }
     e.preventDefault();
     setSaving(true);
     try {
+      const formData = new FormData(e.currentTarget);
+      const selectedBranch = String(formData.get("branch") || branch || "").trim();
+      const selectedOtherBranch = String(
+        formData.get("otherBranch") || otherBranch || ""
+      ).trim();
       const validationError = validateServiceRecord({
         date,
-        branch,
-        otherBranch,
+        branch: selectedBranch,
+        otherBranch: selectedOtherBranch,
         serviceType,
         otherServiceType,
         attendance,
@@ -177,8 +182,8 @@ export default function ReportForm({ initialData, userBranch, onSave, onCancel }
         dayOfWeek,
         serviceType,
         otherServiceType: serviceType === "Other" ? otherServiceType.trim() : "",
-        branch,
-        otherBranch: branch === "Other" ? otherBranch : "",
+        branch: selectedBranch,
+        otherBranch: selectedBranch === "Other" ? selectedOtherBranch : "",
         isSpecialProgramme,
         specialProgramme: {
           enabled: isSpecialProgramme,
@@ -291,6 +296,7 @@ export default function ReportForm({ initialData, userBranch, onSave, onCancel }
             )}
             <InputGroup label="Branch">
               <select
+                name="branch"
                 className="w-full border rounded px-3 py-3 text-base"
                 value={branch}
                 onChange={(e) => setBranch(e.target.value)}
@@ -307,6 +313,7 @@ export default function ReportForm({ initialData, userBranch, onSave, onCancel }
           {branch === "Other" && (
             <InputGroup label="Specify Other Branch">
               <input
+                name="otherBranch"
                 className="w-full border rounded px-3 py-3 text-base"
                 value={otherBranch}
                 onChange={(e) => setOtherBranch(e.target.value)}
