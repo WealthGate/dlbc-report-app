@@ -284,6 +284,16 @@ const HEADQUARTERS_CORE_SERVICE_TYPE_SET = new Set(HEADQUARTERS_CORE_SERVICE_TYP
 const HEADQUARTERS_TABLE_CELL_CLASS =
   "border border-slate-200 px-2 py-2 align-top";
 
+const HEADQUARTERS_RECIPIENT_LINES = [
+  "The Church Secretary",
+  "DLBC Headquarters,",
+  "Gbagada, Nigeria."
+];
+
+const HEADQUARTERS_SUBMITTED_BY = "Pastor Joshua Oluremi Alabi";
+const HEADQUARTERS_SUBMITTER_TITLE =
+  "National Overseer, Deeper Life Bible Church, Dominica";
+
 const createHeadquartersServiceBucket = (serviceType) => ({
   serviceType,
   timesHeld: 0,
@@ -320,6 +330,21 @@ const compareHeadquartersRows = (left, right) => {
   return String(left.branch || left.location || "").localeCompare(
     String(right.branch || right.location || "")
   );
+};
+
+const groupHeadquartersRecordsByLocation = (records = []) => {
+  const grouped = new Map();
+  records.forEach((record) => {
+    const location = record.branch || record.location || "Unknown";
+    if (!grouped.has(location)) grouped.set(location, []);
+    grouped.get(location).push(record);
+  });
+  return Array.from(grouped.entries())
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([location, locationRecords]) => ({
+      location,
+      records: [...locationRecords].sort(compareHeadquartersRows)
+    }));
 };
 
 const buildHeadquartersAttendanceReportData = (summary, monthLabel, countryLabel) => {
@@ -445,12 +470,18 @@ const buildHeadquartersAttendanceReportData = (summary, monthLabel, countryLabel
     totals,
     coreServiceRows,
     detailedRecords: [...detailedRecords].sort(compareHeadquartersRows),
+    detailedRecordsByLocation: groupHeadquartersRecordsByLocation(detailedRecords),
     specialProgrammeRecords: [...specialProgrammeRecords].sort(compareHeadquartersRows)
   };
 };
 
 const buildHeadquartersAttendanceReportText = (reportData) => {
   const lines = [
+    ...HEADQUARTERS_RECIPIENT_LINES,
+    "",
+    `Submitted By: ${HEADQUARTERS_SUBMITTED_BY}`,
+    HEADQUARTERS_SUBMITTER_TITLE,
+    "",
     reportData.title,
     "",
     "Introduction",
@@ -480,10 +511,13 @@ const buildHeadquartersAttendanceReportText = (reportData) => {
   if (reportData.detailedRecords.length === 0) {
     lines.push("- No service records found for this month.");
   } else {
-    reportData.detailedRecords.forEach((record) => {
-      lines.push(
-        `- ${record.formattedDate} | ${record.dayOfWeek || "-"} | ${record.branch} | ${record.serviceType} | Adults ${record.adults} (Male ${record.men}, Female ${record.women}) | Youth ${record.youth} | Children ${record.children} | Total ${record.totalAttendance} | Income ${formatCurrencyAmount(record.totalIncome)}`
-      );
+    (reportData.detailedRecordsByLocation || groupHeadquartersRecordsByLocation(reportData.detailedRecords)).forEach((group) => {
+      lines.push("", group.location);
+      group.records.forEach((record) => {
+        lines.push(
+          `- ${record.formattedDate} | ${record.dayOfWeek || "-"} | ${record.serviceType} | Adults ${record.adults} (Male ${record.men}, Female ${record.women}) | Youth ${record.youth} | Children ${record.children} | Total ${record.totalAttendance} | Income ${formatCurrencyAmount(record.totalIncome)}`
+        );
+      });
     });
   }
 
@@ -498,6 +532,14 @@ const buildHeadquartersAttendanceReportText = (reportData) => {
       );
     });
   }
+
+  lines.push(
+    "",
+    "Yours faithfully,",
+    "",
+    HEADQUARTERS_SUBMITTED_BY,
+    HEADQUARTERS_SUBMITTER_TITLE
+  );
 
   return lines.join("\n");
 };
@@ -1299,24 +1341,47 @@ export default function MonthlyAnalytics({
       )
       .join("");
 
-    const detailRows = headquartersReport.detailedRecords
-      .map(
-        (row) => `
-          <tr>
-            <td>${escapeHtml(row.formattedDate)}</td>
-            <td>${escapeHtml(row.dayOfWeek || "-")}</td>
-            <td>${escapeHtml(row.branch)}</td>
-            <td>${escapeHtml(row.serviceType)}</td>
-            <td style="text-align:right">${row.men}</td>
-            <td style="text-align:right">${row.women}</td>
-            <td style="text-align:right">${row.adults}</td>
-            <td style="text-align:right">${row.youth}</td>
-            <td style="text-align:right">${row.children}</td>
-            <td style="text-align:right">${row.totalAttendance}</td>
-            <td style="text-align:right">${Number(row.totalIncome || 0).toFixed(2)}</td>
-          </tr>
-        `
-      )
+    const detailSections = (headquartersReport.detailedRecordsByLocation || [])
+      .map((group) => {
+        const rows = group.records
+          .map(
+            (row) => `
+              <tr>
+                <td>${escapeHtml(row.formattedDate)}</td>
+                <td>${escapeHtml(row.dayOfWeek || "-")}</td>
+                <td>${escapeHtml(row.serviceType)}</td>
+                <td style="text-align:right">${row.men}</td>
+                <td style="text-align:right">${row.women}</td>
+                <td style="text-align:right">${row.adults}</td>
+                <td style="text-align:right">${row.youth}</td>
+                <td style="text-align:right">${row.children}</td>
+                <td style="text-align:right">${row.totalAttendance}</td>
+                <td style="text-align:right">${Number(row.totalIncome || 0).toFixed(2)}</td>
+              </tr>
+            `
+          )
+          .join("");
+        return `
+          <h3>${escapeHtml(group.location)}</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Day</th>
+                <th>Service Type</th>
+                <th style="text-align:right">Male</th>
+                <th style="text-align:right">Female</th>
+                <th style="text-align:right">Adults</th>
+                <th style="text-align:right">Youth</th>
+                <th style="text-align:right">Children</th>
+                <th style="text-align:right">Total</th>
+                <th style="text-align:right">Income (XCD)</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        `;
+      })
       .join("");
 
     const specialRows = headquartersReport.specialProgrammeRecords
@@ -1350,8 +1415,13 @@ export default function MonthlyAnalytics({
           <style>
             @page { size: landscape; margin: 10mm; }
             body { font-family: Arial, sans-serif; margin: 18px; color: #111827; }
-            h1, h2 { margin: 0 0 12px; }
+            h1, h2, h3 { margin: 0 0 12px; }
+            h3 { color: #0f172a; font-size: 14px; margin-top: 16px; }
             p { line-height: 1.55; }
+            .letterhead { width: 100%; height: auto; display: block; margin-bottom: 18px; }
+            .recipient { font-family: "Times New Roman", serif; font-size: 13pt; margin-bottom: 16px; }
+            .date { text-align: right; margin-bottom: 12px; }
+            .signature { margin-top: 28px; font-family: "Times New Roman", serif; font-size: 13pt; }
             .intro, .overview { margin-bottom: 16px; }
             .overview-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
             .overview-card { border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; background: #f8fafc; }
@@ -1368,6 +1438,13 @@ export default function MonthlyAnalytics({
           </style>
         </head>
         <body>
+          <img class="letterhead" src="/letterhead.png" alt="DLBC Letterhead" />
+          <div class="recipient">
+            <div class="date">${escapeHtml(new Date().toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" }))}</div>
+            ${HEADQUARTERS_RECIPIENT_LINES.map((line) => `<div>${escapeHtml(line)}</div>`).join("")}
+            <div style="margin-top:12px;font-weight:700">Submitted By: ${escapeHtml(HEADQUARTERS_SUBMITTED_BY)}</div>
+            <div>${escapeHtml(HEADQUARTERS_SUBMITTER_TITLE)}</div>
+          </div>
           <h1>${escapeHtml(headquartersReport.title)}</h1>
           <div class="intro">
             <h2>Introduction</h2>
@@ -1405,24 +1482,7 @@ export default function MonthlyAnalytics({
           </table>
 
           <h2>Detailed Monthly Service Records</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Day</th>
-                <th>Branch</th>
-                <th>Service Type</th>
-                <th style="text-align:right">Male</th>
-                <th style="text-align:right">Female</th>
-                <th style="text-align:right">Adults</th>
-                <th style="text-align:right">Youth</th>
-                <th style="text-align:right">Children</th>
-                <th style="text-align:right">Total</th>
-                <th style="text-align:right">Income (XCD)</th>
-              </tr>
-            </thead>
-            <tbody>${detailRows || "<tr><td colspan='11'>No service records found for this month.</td></tr>"}</tbody>
-          </table>
+          ${detailSections || "<p>No service records found for this month.</p>"}
 
           <h2>Special Programme Attendance</h2>
           <table>
@@ -1445,6 +1505,12 @@ export default function MonthlyAnalytics({
             </thead>
             <tbody>${specialRows || "<tr><td colspan='13'>No special programmes recorded for this month.</td></tr>"}</tbody>
           </table>
+          <div class="signature">
+            <div>Yours faithfully,</div>
+            <div style="height:40px"></div>
+            <div>${escapeHtml(HEADQUARTERS_SUBMITTED_BY)}</div>
+            <div>${escapeHtml(HEADQUARTERS_SUBMITTER_TITLE)}</div>
+          </div>
           <script>window.print();</script>
         </body>
       </html>
@@ -2492,6 +2558,14 @@ export default function MonthlyAnalytics({
           <p className="text-sm text-slate-700 leading-6">{headquartersReport.overviewText}</p>
         </div>
 
+        <div className="rounded-lg border border-slate-200 bg-white px-4 py-4 mb-5 text-sm text-slate-700">
+          {HEADQUARTERS_RECIPIENT_LINES.map((line) => (
+            <p key={line}>{line}</p>
+          ))}
+          <p className="font-semibold mt-3">Submitted By: {HEADQUARTERS_SUBMITTED_BY}</p>
+          <p>{HEADQUARTERS_SUBMITTER_TITLE}</p>
+        </div>
+
         <div className="grid md:grid-cols-4 xl:grid-cols-7 gap-3 text-sm mb-6">
           <div className="rounded border border-slate-200 bg-slate-50 p-3">
             <p className="text-xs uppercase font-semibold text-slate-500">Services Held</p>
@@ -2571,52 +2645,57 @@ export default function MonthlyAnalytics({
           </table>
         </div>
 
-        <div className="mb-6 overflow-auto rounded border border-slate-200 print:overflow-visible">
-          <table className="w-full min-w-[1180px] text-xs md:text-sm print:min-w-0 print:table-fixed print:text-[8.5px]">
-            <caption className="bg-slate-100 px-3 py-2 text-left font-semibold text-slate-800">
-              Detailed Monthly Service Records
-            </caption>
-            <thead className="bg-slate-50">
-              <tr>
-                <th className={HEADQUARTERS_TABLE_CELL_CLASS}>Date</th>
-                <th className={HEADQUARTERS_TABLE_CELL_CLASS}>Day</th>
-                <th className={HEADQUARTERS_TABLE_CELL_CLASS}>Branch</th>
-                <th className={HEADQUARTERS_TABLE_CELL_CLASS}>Service Type</th>
-                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Male</th>
-                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Female</th>
-                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Adults</th>
-                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Youth</th>
-                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Children</th>
-                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Total</th>
-                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Income (XCD)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {headquartersReport.detailedRecords.length === 0 ? (
-                <tr>
-                  <td className={HEADQUARTERS_TABLE_CELL_CLASS} colSpan={11}>
-                    No service records found for this month.
-                  </td>
-                </tr>
-              ) : (
-                headquartersReport.detailedRecords.map((row) => (
-                  <tr key={row.id} className="border-t border-slate-100">
-                    <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} whitespace-nowrap`}>{row.formattedDate}</td>
-                    <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} whitespace-nowrap`}>{row.dayOfWeek || "-"}</td>
-                    <td className={HEADQUARTERS_TABLE_CELL_CLASS}>{row.branch}</td>
-                    <td className={HEADQUARTERS_TABLE_CELL_CLASS}>{row.serviceType}</td>
-                    <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{row.men}</td>
-                    <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{row.women}</td>
-                    <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right font-semibold`}>{row.adults}</td>
-                    <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{row.youth}</td>
-                    <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{row.children}</td>
-                    <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right font-semibold`}>{row.totalAttendance}</td>
-                    <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{Number(row.totalIncome || 0).toFixed(2)}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+        <div className="mb-6">
+          <h4 className="bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-800 border border-slate-200 rounded-t">
+            Detailed Monthly Service Records
+          </h4>
+          {headquartersReport.detailedRecords.length === 0 ? (
+            <div className="border border-t-0 border-slate-200 px-3 py-3 text-sm text-slate-500">
+              No service records found for this month.
+            </div>
+          ) : (
+            headquartersReport.detailedRecordsByLocation.map((group) => (
+              <div key={group.location} className="mb-4">
+                <h5 className="px-3 py-2 text-sm font-semibold text-slate-800 bg-blue-50 border-x border-slate-200">
+                  {group.location}
+                </h5>
+                <div className="overflow-auto rounded-b border border-slate-200 print:overflow-visible">
+                  <table className="w-full min-w-[1080px] text-xs md:text-sm print:min-w-0 print:table-fixed print:text-[8.5px]">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th className={HEADQUARTERS_TABLE_CELL_CLASS}>Date</th>
+                        <th className={HEADQUARTERS_TABLE_CELL_CLASS}>Day</th>
+                        <th className={HEADQUARTERS_TABLE_CELL_CLASS}>Service Type</th>
+                        <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Male</th>
+                        <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Female</th>
+                        <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Adults</th>
+                        <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Youth</th>
+                        <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Children</th>
+                        <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Total</th>
+                        <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Income (XCD)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {group.records.map((row) => (
+                        <tr key={row.id} className="border-t border-slate-100">
+                          <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} whitespace-nowrap`}>{row.formattedDate}</td>
+                          <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} whitespace-nowrap`}>{row.dayOfWeek || "-"}</td>
+                          <td className={HEADQUARTERS_TABLE_CELL_CLASS}>{row.serviceType}</td>
+                          <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{row.men}</td>
+                          <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{row.women}</td>
+                          <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right font-semibold`}>{row.adults}</td>
+                          <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{row.youth}</td>
+                          <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{row.children}</td>
+                          <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right font-semibold`}>{row.totalAttendance}</td>
+                          <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{Number(row.totalIncome || 0).toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))
+          )}
         </div>
 
         <div className="overflow-auto rounded border border-slate-200 print:overflow-visible">

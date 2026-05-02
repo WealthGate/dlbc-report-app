@@ -25,7 +25,6 @@ import {
   query,
   updateDoc,
   where,
-  getDoc,
   setDoc,
   writeBatch
 } from 'firebase/firestore';
@@ -538,6 +537,8 @@ export default function ChurchReportApp() {
         branch: basePayload.branch,
         otherBranch: basePayload.otherBranch
       });
+      const submittedBranchLabel = getBranchLabel(basePayload);
+      const submittedServiceLabel = getServiceLabel(basePayload);
 
       if (reportData.id) {
         const { id, ...rest } = basePayload;
@@ -548,53 +549,28 @@ export default function ChurchReportApp() {
           lastModifiedAt: new Date().toISOString()
         });
       } else {
-        const reportRef = doc(db, "reports", reportKey);
-        let existing = null;
-        try {
-          existing = await getDoc(reportRef);
-        } catch (e) {
-          existing = null;
-        }
-        if (existing?.exists()) {
-          const existingData = existing.data() || {};
-          const existingBranchLabel = getBranchLabel(existingData);
-          const submittedBranchLabel = getBranchLabel(basePayload);
-          const existingServiceLabel = getServiceLabel(existingData);
-          const submittedServiceLabel = getServiceLabel(basePayload);
-          const sameSubmittedReport =
-            String(existingData.date || "") === String(basePayload.date || "") &&
-            existingBranchLabel === submittedBranchLabel &&
-            existingServiceLabel === submittedServiceLabel;
+        const visibleDuplicate = reports.find((existingData) => {
+          if (String(existingData.date || "") !== String(basePayload.date || "")) return false;
+          return (
+            getBranchLabel(existingData) === submittedBranchLabel &&
+            getServiceLabel(existingData) === submittedServiceLabel
+          );
+        });
 
-          if (!sameSubmittedReport) {
-            const safeReportRef = doc(
-              collection(db, "reports")
-            );
-            await setDoc(safeReportRef, {
-              ...basePayload,
-              reportKey: safeReportRef.id,
-              legacyCollisionKey: reportKey,
-              createdAt: new Date().toISOString(),
-              createdBy: user.email,
-              country: userProfile?.country || "",
-              countryKey
-            });
-            setEditingReport(null);
-            setView("dashboard");
-            return;
-          }
-
-          const branchLabel = getBranchLabel(existingData);
-          const serviceLabel = getServiceLabel(existingData);
+        if (visibleDuplicate) {
+          const branchLabel = getBranchLabel(visibleDuplicate);
+          const serviceLabel = getServiceLabel(visibleDuplicate);
           alert(
-            `A report already exists for ${branchLabel} on ${existingData.date || reportData.date} (${serviceLabel}).`
+            `A report already exists for ${branchLabel} on ${visibleDuplicate.date || reportData.date} (${serviceLabel}).`
           );
           return;
         }
 
+        const reportRef = doc(collection(db, "reports"));
         await setDoc(reportRef, {
           ...basePayload,
           reportKey,
+          reportDocumentId: reportRef.id,
           createdAt: new Date().toISOString(),
           createdBy: user.email,
           country: userProfile?.country || "",
@@ -606,7 +582,7 @@ export default function ChurchReportApp() {
     } catch (e) {
       if (e?.code === "permission-denied") {
         alert(
-          "This report could not be saved. Please confirm your profile country is set, then check whether a report with the same date, service type, and location already exists."
+          "This report could not be saved because your account is missing permission for this country or location. Please contact the administrator to confirm your user profile country and branch."
         );
         return;
       }
