@@ -487,7 +487,7 @@ export default function ChurchReportApp() {
       }
       const effectiveBranch = reportData.id
         ? submittedBranch
-        : submittedBranch || profileBranch || "Goodwill";
+        : submittedBranch || profileBranch;
       if (!effectiveBranch || effectiveBranch === "Headquarters") {
         alert("Please select a valid report location before saving.");
         return;
@@ -530,6 +530,33 @@ export default function ChurchReportApp() {
         }
         if (existing?.exists()) {
           const existingData = existing.data() || {};
+          const existingBranchLabel = getBranchLabel(existingData);
+          const submittedBranchLabel = getBranchLabel(basePayload);
+          const existingServiceLabel = getServiceLabel(existingData);
+          const submittedServiceLabel = getServiceLabel(basePayload);
+          const sameSubmittedReport =
+            String(existingData.date || "") === String(basePayload.date || "") &&
+            existingBranchLabel === submittedBranchLabel &&
+            existingServiceLabel === submittedServiceLabel;
+
+          if (!sameSubmittedReport) {
+            const safeReportRef = doc(
+              collection(db, "reports")
+            );
+            await setDoc(safeReportRef, {
+              ...basePayload,
+              reportKey: safeReportRef.id,
+              legacyCollisionKey: reportKey,
+              createdAt: new Date().toISOString(),
+              createdBy: user.email,
+              country: userProfile?.country || "",
+              countryKey
+            });
+            setEditingReport(null);
+            setView("dashboard");
+            return;
+          }
+
           const branchLabel = getBranchLabel(existingData);
           const serviceLabel = getServiceLabel(existingData);
           alert(
