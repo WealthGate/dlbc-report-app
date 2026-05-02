@@ -480,7 +480,7 @@ export default function ChurchReportApp() {
     try {
       const effectiveBranch = reportData.id
         ? reportData.branch
-        : userProfile?.branch || reportData.branch || "Goodwill";
+        : reportData.branch || userProfile?.branch || "Goodwill";
       const normalizedEffectiveBranch =
         effectiveBranch === "Headquarters" ? "Goodwill" : effectiveBranch;
       const effectiveOtherBranch =

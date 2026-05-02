@@ -437,7 +437,7 @@ const buildHeadquartersAttendanceReportData = (summary, monthLabel, countryLabel
     };
   });
 
-  const overviewText = `This attendance-focused headquarters report summarizes ${monthLabel} service records for ${countryLabel}. It presents the monthly attendance pattern for adults, youth, and children, alongside service income, with special attention to Sunday, Tuesday, and Thursday services and a separate view of special programme attendance.`;
+  const overviewText = `This report presents a simple attendance and income summary for ${monthLabel}, focusing on Sunday, Tuesday, and Thursday services, followed by the detailed monthly service records and any special programme attendance.`;
 
   return {
     title: `Headquarters Attendance Report - ${monthLabel}`,
@@ -2820,7 +2820,6 @@ export default function MonthlyAnalytics({
                     : "AI-enriched monthly report"}
                 </div>
                 <div className="bg-white px-4 py-4">
-                  <MonthlyOverviewBreakdown summary={summary} />
                   <pre className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-800 font-sans">
                     {activeAiPanelText || "No content saved for this view."}
                   </pre>
@@ -2930,198 +2929,6 @@ export default function MonthlyAnalytics({
  </section>
 </div>
 </div>
-</Card>
-
-<Card className="p-6 print:p-3 print:shadow-none print:border-none monthly-table-card">
-  <h3 className="font-semibold mb-4 text-slate-800">
-    Overview Breakdown by Location and Service Type
-  </h3>
-  <div className="grid md:grid-cols-5 gap-3 text-sm mb-5">
-    <div className="rounded border border-slate-200 bg-slate-50 p-3">
-      <p className="text-xs uppercase font-semibold text-slate-500">Services</p>
-      <p className="text-xl font-bold">{summary.serviceRecordSummary?.totals?.serviceCount || 0}</p>
-    </div>
-    <div className="rounded border border-slate-200 bg-slate-50 p-3">
-      <p className="text-xs uppercase font-semibold text-slate-500">Total Attendance</p>
-      <p className="text-xl font-bold">{summary.serviceRecordSummary?.totals?.attendance || 0}</p>
-    </div>
-    <div className="rounded border border-slate-200 bg-slate-50 p-3">
-      <p className="text-xs uppercase font-semibold text-slate-500">New Visitors</p>
-      <p className="text-xl font-bold">{summary.serviceRecordSummary?.totals?.newVisitors || 0}</p>
-    </div>
-    <div className="rounded border border-slate-200 bg-slate-50 p-3">
-      <p className="text-xs uppercase font-semibold text-slate-500">Youth</p>
-      <p className="text-xl font-bold">{summary.serviceRecordSummary?.totals?.youth || 0}</p>
-    </div>
-    <div className="rounded border border-slate-200 bg-slate-50 p-3">
-      <p className="text-xs uppercase font-semibold text-slate-500">Income</p>
-      <p className="text-xl font-bold">
-        XCD {Number(summary.serviceRecordSummary?.totals?.income || 0).toFixed(2)}
-      </p>
-    </div>
-  </div>
-
-  <div className="mb-6 rounded border border-blue-100 bg-blue-50 p-4 text-sm">
-    <div className="grid md:grid-cols-4 gap-3">
-      <div>
-        <p className="text-xs uppercase font-semibold text-blue-800">Total Services</p>
-        <p className="text-xl font-bold text-blue-950">
-          {summary.monthlyReportOverview?.overall?.serviceCount || 0}
-        </p>
-      </div>
-      <div>
-        <p className="text-xs uppercase font-semibold text-blue-800">Cumulative Attendance</p>
-        <p className="text-xl font-bold text-blue-950">
-          {summary.monthlyReportOverview?.overall?.attendance?.total || 0}
-        </p>
-      </div>
-      <div>
-        <p className="text-xs uppercase font-semibold text-blue-800">Average Attendance</p>
-        <p className="text-xl font-bold text-blue-950">
-          {(summary.monthlyReportOverview?.overall?.averageAttendance || 0).toFixed(1)}
-        </p>
-      </div>
-      <div>
-        <p className="text-xs uppercase font-semibold text-blue-800">Calculation</p>
-        <p className="text-base font-semibold text-blue-950">
-          {summary.monthlyReportOverview?.overall?.calculation || "0 / 0 = 0.0"}
-        </p>
-      </div>
-    </div>
-  </div>
-
-  <div className="mb-6 overflow-auto rounded border border-slate-200">
-    <table className="w-full text-xs md:text-sm">
-      <thead className="bg-slate-100">
-        <tr>
-          <th className="px-2 py-2 text-left">Location</th>
-          <th className="px-2 py-2 text-left">Service Type</th>
-          <th className="px-2 py-2 text-right">Held</th>
-          <th className="px-2 py-2 text-right">Men</th>
-          <th className="px-2 py-2 text-right">Women</th>
-          <th className="px-2 py-2 text-right">Children</th>
-          <th className="px-2 py-2 text-right">Youth</th>
-          <th className="px-2 py-2 text-right">Visitors</th>
-          <th className="px-2 py-2 text-right">Cumulative</th>
-          <th className="px-2 py-2 text-left">Average Calculation</th>
-          <th className="px-2 py-2 text-right">Average</th>
-          <th className="px-2 py-2 text-right">Min</th>
-          <th className="px-2 py-2 text-right">Max</th>
-        </tr>
-      </thead>
-      <tbody>
-        {(summary.monthlyReportOverview?.branchServiceTypes || []).length === 0 ? (
-          <tr>
-            <td className="px-2 py-3 text-slate-500" colSpan={13}>
-              No service overview rows available for this month.
-            </td>
-          </tr>
-        ) : (
-          summary.monthlyReportOverview.branchServiceTypes.map((row) => (
-            <tr key={`${row.branch}-${row.serviceType}`} className="border-t border-slate-100">
-              <td className="px-2 py-2 whitespace-nowrap">{row.branch}</td>
-              <td className="px-2 py-2 whitespace-nowrap">{row.serviceType}</td>
-              <td className="px-2 py-2 text-right">{row.serviceCount}</td>
-              <td className="px-2 py-2 text-right">{row.attendance.men}</td>
-              <td className="px-2 py-2 text-right">{row.attendance.women}</td>
-              <td className="px-2 py-2 text-right">{row.attendance.children}</td>
-              <td className="px-2 py-2 text-right">{row.attendance.youth}</td>
-              <td className="px-2 py-2 text-right">{row.attendance.newVisitors}</td>
-              <td className="px-2 py-2 text-right font-semibold">{row.attendance.total}</td>
-              <td className="px-2 py-2 whitespace-nowrap">{row.calculation}</td>
-              <td className="px-2 py-2 text-right">{row.averageAttendance.toFixed(1)}</td>
-              <td className="px-2 py-2 text-right">{row.minAttendance}</td>
-              <td className="px-2 py-2 text-right">{row.maxAttendance}</td>
-            </tr>
-          ))
-        )}
-      </tbody>
-    </table>
-  </div>
-
-  <div className="grid lg:grid-cols-2 gap-5">
-    <div className="overflow-auto rounded border border-slate-200">
-      <table className="w-full text-xs md:text-sm">
-        <thead className="bg-slate-100">
-          <tr>
-            <th className="px-2 py-2 text-left">Branch</th>
-            <th className="px-2 py-2 text-right">Services</th>
-            <th className="px-2 py-2 text-right">Attendance</th>
-            <th className="px-2 py-2 text-right">Visitors</th>
-            <th className="px-2 py-2 text-right">Income</th>
-          </tr>
-        </thead>
-        <tbody>
-          {(summary.serviceRecordSummary?.branches || []).map((branch) => (
-            <tr key={branch.branch} className="border-t border-slate-100">
-              <td className="px-2 py-2">{branch.branch}</td>
-              <td className="px-2 py-2 text-right">{branch.serviceCount}</td>
-              <td className="px-2 py-2 text-right">{branch.attendance.total}</td>
-              <td className="px-2 py-2 text-right">{branch.newVisitors}</td>
-              <td className="px-2 py-2 text-right">{branch.totalIncome.toFixed(2)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-
-    <div className="overflow-auto rounded border border-slate-200">
-      <table className="w-full text-xs md:text-sm">
-        <thead className="bg-slate-100">
-          <tr>
-            <th className="px-2 py-2 text-left">Country Service Type</th>
-            <th className="px-2 py-2 text-right">Held</th>
-            <th className="px-2 py-2 text-right">Avg</th>
-            <th className="px-2 py-2 text-right">Min</th>
-            <th className="px-2 py-2 text-right">Max</th>
-          </tr>
-        </thead>
-        <tbody>
-          {(summary.serviceRecordSummary?.countryServiceTypes || []).map((service) => (
-            <tr key={service.serviceType} className="border-t border-slate-100">
-              <td className="px-2 py-2">{service.serviceType}</td>
-              <td className="px-2 py-2 text-right">{service.count}</td>
-              <td className="px-2 py-2 text-right">{service.averageAttendance.toFixed(1)}</td>
-              <td className="px-2 py-2 text-right">{service.minAttendance}</td>
-              <td className="px-2 py-2 text-right">{service.maxAttendance}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  {(summary.serviceRecordSummary?.specialProgrammes || []).length > 0 && (
-    <div className="mt-5">
-      <h4 className="font-semibold mb-2 text-slate-700">Special Programmes / Outreach</h4>
-      <div className="overflow-auto rounded border border-slate-200">
-        <table className="w-full text-xs md:text-sm">
-          <thead className="bg-slate-100">
-            <tr>
-              <th className="px-2 py-2 text-left">Date</th>
-              <th className="px-2 py-2 text-left">Branch</th>
-              <th className="px-2 py-2 text-left">Programme</th>
-              <th className="px-2 py-2 text-right">Attendance</th>
-              <th className="px-2 py-2 text-right">Visitors</th>
-              <th className="px-2 py-2 text-left">Remarks</th>
-            </tr>
-          </thead>
-          <tbody>
-            {summary.serviceRecordSummary.specialProgrammes.map((programme, index) => (
-              <tr key={`${programme.date}-${programme.title}-${index}`} className="border-t border-slate-100">
-                <td className="px-2 py-2 whitespace-nowrap">{programme.date}</td>
-                <td className="px-2 py-2">{programme.location}</td>
-                <td className="px-2 py-2">{programme.title || programme.type}</td>
-                <td className="px-2 py-2 text-right">{programme.attendance?.total || 0}</td>
-                <td className="px-2 py-2 text-right">{programme.newVisitors || 0}</td>
-                <td className="px-2 py-2">{programme.remarks || "-"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )}
 </Card>
 
 {/* Detailed table of all services in the month */}
