@@ -15,12 +15,18 @@ import {
 import { Button, Card, formatLocalDateKey, InputGroup } from "./viewShared";
 
 const BRANCH_OPTIONS = [...DEFAULT_BRANCHES];
+const DEFAULT_REPORT_BRANCH = BRANCH_OPTIONS.includes("Roseau")
+  ? "Roseau"
+  : BRANCH_OPTIONS[0] || "Other";
+
+const normalizeInitialBranch = (branch) => {
+  if (branch === "Headquarters") return DEFAULT_REPORT_BRANCH;
+  if (BRANCH_OPTIONS.includes(branch)) return branch;
+  return DEFAULT_REPORT_BRANCH;
+};
 
 export default function ReportForm({ initialData, userBranch, onSave, onCancel }) {
-  const initialBranch =
-    (initialData?.branch === "Headquarters" ? "Goodwill" : initialData?.branch) ||
-    (userBranch === "Headquarters" ? "Goodwill" : userBranch) ||
-    "Goodwill";
+  const initialBranch = normalizeInitialBranch(initialData?.branch || userBranch);
   const [date, setDate] = useState(
     initialData?.date || formatLocalDateKey(new Date())
   );

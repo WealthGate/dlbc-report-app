@@ -478,17 +478,28 @@ export default function ChurchReportApp() {
 
   const handleSaveReport = async (reportData) => {
     try {
+      const submittedBranch = String(reportData.branch || "").trim();
+      const profileBranch =
+        userProfile?.branch === "Headquarters" ? "" : String(userProfile?.branch || "").trim();
+      if (!reportData.id && canViewCountryData && !submittedBranch) {
+        alert("Please select the report location before saving.");
+        return;
+      }
       const effectiveBranch = reportData.id
-        ? reportData.branch
-        : reportData.branch || userProfile?.branch || "Goodwill";
-      const normalizedEffectiveBranch =
-        effectiveBranch === "Headquarters" ? "Goodwill" : effectiveBranch;
+        ? submittedBranch
+        : submittedBranch || profileBranch || "Goodwill";
+      if (!effectiveBranch || effectiveBranch === "Headquarters") {
+        alert("Please select a valid report location before saving.");
+        return;
+      }
+      const normalizedEffectiveBranch = effectiveBranch;
       const effectiveOtherBranch =
         normalizedEffectiveBranch === "Other" ? reportData.otherBranch : "";
       const basePayload = reportData.id
         ? {
             ...reportData,
-            branch: reportData.branch === "Headquarters" ? "Goodwill" : reportData.branch
+            branch: normalizedEffectiveBranch,
+            otherBranch: effectiveOtherBranch
           }
         : { ...reportData, branch: normalizedEffectiveBranch, otherBranch: effectiveOtherBranch };
 
