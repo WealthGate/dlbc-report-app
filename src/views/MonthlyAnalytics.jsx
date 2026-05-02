@@ -273,6 +273,242 @@ const addReportToOverviewBucket = (bucket, report) => {
   bucket.calculation = `${bucket.attendance.total} / ${bucket.serviceCount} = ${bucket.averageAttendance.toFixed(1)}`;
 };
 
+const HEADQUARTERS_CORE_SERVICE_TYPES = [
+  "Sunday Worship Service",
+  "Tuesday Bible Study",
+  "Thursday Revival Service"
+];
+
+const HEADQUARTERS_CORE_SERVICE_TYPE_SET = new Set(HEADQUARTERS_CORE_SERVICE_TYPES);
+
+const HEADQUARTERS_TABLE_CELL_CLASS =
+  "border border-slate-200 px-2 py-2 align-top";
+
+const createHeadquartersServiceBucket = (serviceType) => ({
+  serviceType,
+  timesHeld: 0,
+  men: 0,
+  women: 0,
+  adults: 0,
+  youth: 0,
+  children: 0,
+  totalAttendance: 0,
+  totalIncome: 0,
+  averageAttendance: 0,
+  minAttendance: 0,
+  maxAttendance: 0
+});
+
+const formatCurrencyAmount = (value) => `XCD ${Number(value || 0).toFixed(2)}`;
+
+const formatShortDate = (value) => {
+  const parsed = parseReportDate(value);
+  if (!parsed || Number.isNaN(parsed.getTime())) return value || "-";
+  return parsed.toLocaleDateString(undefined, {
+    day: "2-digit",
+    month: "short",
+    year: "numeric"
+  });
+};
+
+const compareHeadquartersRows = (left, right) => {
+  const leftTime = parseReportDate(left.date)?.getTime() || 0;
+  const rightTime = parseReportDate(right.date)?.getTime() || 0;
+  if (leftTime !== rightTime) return leftTime - rightTime;
+  const serviceCompare = String(left.serviceType || "").localeCompare(String(right.serviceType || ""));
+  if (serviceCompare !== 0) return serviceCompare;
+  return String(left.branch || left.location || "").localeCompare(
+    String(right.branch || right.location || "")
+  );
+};
+
+const buildHeadquartersAttendanceReportData = (summary, monthLabel, countryLabel) => {
+  const monthReports = summary?.monthReports || [];
+  const coreServiceBuckets = new Map(
+    HEADQUARTERS_CORE_SERVICE_TYPES.map((serviceType) => [
+      serviceType,
+      createHeadquartersServiceBucket(serviceType)
+    ])
+  );
+
+  const detailedRecords = [];
+  const specialProgrammeRecords = [];
+
+  const totals = {
+    serviceCount: 0,
+    men: 0,
+    women: 0,
+    adults: 0,
+    youth: 0,
+    children: 0,
+    totalAttendance: 0,
+    totalIncome: 0,
+    specialProgrammeCount: 0,
+    specialProgrammeAttendance: 0
+  };
+
+  monthReports.forEach((report) => {
+    const attendance = getAttendanceBreakdown(report);
+    const adults = attendance.men + attendance.women;
+    const totalIncome = (report.financials?.income || []).reduce(
+      (sum, row) => sum + getIncomeRowAmountXcd(row),
+      0
+    );
+    const serviceType = getServiceLabel(report);
+    const branch = getReportBranchName(report);
+    const dayOfWeek = report.dayOfWeek || getDayOfWeek(report.date);
+    const record = {
+      id: report.id || report.reportKey || `${report.date || "date"}-${branch}-${serviceType}`,
+      date: report.date || "",
+      formattedDate: formatShortDate(report.date),
+      dayOfWeek,
+      branch,
+      serviceType,
+      men: attendance.men,
+      women: attendance.women,
+      adults,
+      youth: attendance.youth,
+      children: attendance.children,
+      totalAttendance: attendance.total,
+      totalIncome
+    };
+
+    totals.serviceCount += 1;
+    totals.men += attendance.men;
+    totals.women += attendance.women;
+    totals.adults += adults;
+    totals.youth += attendance.youth;
+    totals.children += attendance.children;
+    totals.totalAttendance += attendance.total;
+    totals.totalIncome += totalIncome;
+
+    detailedRecords.push(record);
+
+    if (HEADQUARTERS_CORE_SERVICE_TYPE_SET.has(serviceType)) {
+      const bucket = coreServiceBuckets.get(serviceType);
+      bucket.timesHeld += 1;
+      bucket.men += attendance.men;
+      bucket.women += attendance.women;
+      bucket.adults += adults;
+      bucket.youth += attendance.youth;
+      bucket.children += attendance.children;
+      bucket.totalAttendance += attendance.total;
+      bucket.totalIncome += totalIncome;
+      bucket.minAttendance =
+        bucket.timesHeld === 1
+          ? attendance.total
+          : Math.min(bucket.minAttendance, attendance.total);
+      bucket.maxAttendance = Math.max(bucket.maxAttendance, attendance.total);
+      bucket.averageAttendance = bucket.timesHeld
+        ? bucket.totalAttendance / bucket.timesHeld
+        : 0;
+    }
+
+    if (report.isSpecialProgramme || report.specialProgramme?.enabled) {
+      totals.specialProgrammeCount += 1;
+      totals.specialProgrammeAttendance += attendance.total;
+      specialProgrammeRecords.push({
+        id: `${record.id}-special`,
+        date: record.date,
+        formattedDate: record.formattedDate,
+        dayOfWeek,
+        location: branch,
+        programmeName: report.specialProgramme?.name?.trim() || serviceType,
+        programmeType: report.specialProgramme?.type?.trim() || serviceType,
+        men: attendance.men,
+        women: attendance.women,
+        adults,
+        youth: attendance.youth,
+        children: attendance.children,
+        totalAttendance: attendance.total,
+        totalIncome,
+        remarks: report.specialProgramme?.highlights || report.notes || ""
+      });
+    }
+  });
+
+  const coreServiceRows = HEADQUARTERS_CORE_SERVICE_TYPES.map((serviceType) => {
+    const bucket = coreServiceBuckets.get(serviceType) || createHeadquartersServiceBucket(serviceType);
+    return {
+      ...bucket,
+      averageAttendance: bucket.timesHeld ? bucket.averageAttendance : 0,
+      minAttendance: bucket.timesHeld ? bucket.minAttendance : 0,
+      maxAttendance: bucket.timesHeld ? bucket.maxAttendance : 0
+    };
+  });
+
+  const overviewText = `This attendance-focused headquarters report summarizes ${monthLabel} service records for ${countryLabel}. It presents the monthly attendance pattern for adults, youth, and children, alongside service income, with special attention to Sunday, Tuesday, and Thursday services and a separate view of special programme attendance.`;
+
+  return {
+    title: `Headquarters Attendance Report - ${monthLabel}`,
+    overviewText,
+    totals,
+    coreServiceRows,
+    detailedRecords: [...detailedRecords].sort(compareHeadquartersRows),
+    specialProgrammeRecords: [...specialProgrammeRecords].sort(compareHeadquartersRows)
+  };
+};
+
+const buildHeadquartersAttendanceReportText = (reportData) => {
+  const lines = [
+    reportData.title,
+    "",
+    reportData.overviewText,
+    "",
+    "Overview",
+    `- Services held: ${reportData.totals.serviceCount}`,
+    `- Adults: ${reportData.totals.adults} (Male ${reportData.totals.men}, Female ${reportData.totals.women})`,
+    `- Youth: ${reportData.totals.youth}`,
+    `- Children: ${reportData.totals.children}`,
+    `- Total attendance: ${reportData.totals.totalAttendance}`,
+    `- Total income: ${formatCurrencyAmount(reportData.totals.totalIncome)}`,
+    `- Special programmes: ${reportData.totals.specialProgrammeCount}`,
+    `- Special programme attendance: ${reportData.totals.specialProgrammeAttendance}`,
+    "",
+    "Core Service Monthly Summary"
+  ];
+
+  reportData.coreServiceRows.forEach((row) => {
+    lines.push(
+      `- ${row.serviceType}: held ${row.timesHeld}; Adults ${row.adults} (Male ${row.men}, Female ${row.women}); Youth ${row.youth}; Children ${row.children}; Total ${row.totalAttendance}; Avg ${row.averageAttendance.toFixed(1)}; Min ${row.minAttendance}; Max ${row.maxAttendance}; Income ${formatCurrencyAmount(row.totalIncome)}`
+    );
+  });
+
+  lines.push("", "Detailed Monthly Service Records");
+
+  if (reportData.detailedRecords.length === 0) {
+    lines.push("- No service records found for this month.");
+  } else {
+    reportData.detailedRecords.forEach((record) => {
+      lines.push(
+        `- ${record.formattedDate} | ${record.dayOfWeek || "-"} | ${record.branch} | ${record.serviceType} | Adults ${record.adults} (Male ${record.men}, Female ${record.women}) | Youth ${record.youth} | Children ${record.children} | Total ${record.totalAttendance} | Income ${formatCurrencyAmount(record.totalIncome)}`
+      );
+    });
+  }
+
+  lines.push("", "Special Programme Attendance");
+
+  if (reportData.specialProgrammeRecords.length === 0) {
+    lines.push("- No special programmes recorded for this month.");
+  } else {
+    reportData.specialProgrammeRecords.forEach((record) => {
+      lines.push(
+        `- ${record.formattedDate} | ${record.programmeName} | ${record.programmeType} | ${record.location} | Adults ${record.adults} (Male ${record.men}, Female ${record.women}) | Youth ${record.youth} | Children ${record.children} | Total ${record.totalAttendance} | Income ${formatCurrencyAmount(record.totalIncome)}${record.remarks ? ` | Remarks: ${record.remarks}` : ""}`
+      );
+    });
+  }
+
+  return lines.join("\n");
+};
+
+const escapeHtml = (value = "") =>
+  String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
 const buildMonthlyReportOverview = (monthReports = []) => {
   const overall = createOverviewBucket({ serviceType: "All services" });
   const countryServiceMap = new Map();
@@ -458,6 +694,8 @@ export default function MonthlyAnalytics({
   const [aiReportError, setAiReportError] = useState("");
   const [aiActionMessage, setAiActionMessage] = useState("");
   const [aiActiveTab, setAiActiveTab] = useState("enriched");
+  const [headquartersActionMessage, setHeadquartersActionMessage] = useState("");
+  const [headquartersError, setHeadquartersError] = useState("");
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [savingSummary, setSavingSummary] = useState(false);
   const [showCharts, setShowCharts] = useState(true);
@@ -787,9 +1025,16 @@ export default function MonthlyAnalytics({
   });
 }, [selectedMonth]);
 
+  const headquartersReport = useMemo(
+    () => buildHeadquartersAttendanceReportData(summary, monthLabel, countryLabel),
+    [summary, monthLabel, countryLabel]
+  );
+
   useEffect(() => {
     setAiActionMessage("");
     setAiReportError("");
+    setHeadquartersActionMessage("");
+    setHeadquartersError("");
   }, [selectedMonth]);
 
   useEffect(() => {
@@ -1003,6 +1248,205 @@ export default function MonthlyAnalytics({
         : "AI-enriched monthly report downloaded."
     );
     setAiReportError("");
+  };
+
+  const handleCopyHeadquartersReport = async () => {
+    try {
+      await copyTextToClipboard(buildHeadquartersAttendanceReportText(headquartersReport));
+      setHeadquartersActionMessage("Headquarters attendance report copied.");
+      setHeadquartersError("");
+    } catch (error) {
+      console.error("Copy headquarters report error:", error);
+      setHeadquartersError("Unable to copy the headquarters attendance report.");
+    }
+  };
+
+  const handleDownloadHeadquartersReport = () => {
+    downloadTextFile(
+      buildMonthlyAiFilename(countryKey, selectedMonth, "headquarters-attendance-report"),
+      buildHeadquartersAttendanceReportText(headquartersReport)
+    );
+    setHeadquartersActionMessage("Headquarters attendance report downloaded.");
+    setHeadquartersError("");
+  };
+
+  const handlePrintHeadquartersReport = () => {
+    const win = window.open("", "_blank");
+    if (!win) {
+      setHeadquartersError("Pop-up blocked. Please allow pop-ups and try again.");
+      return;
+    }
+
+    const coreRows = headquartersReport.coreServiceRows
+      .map(
+        (row) => `
+          <tr>
+            <td>${escapeHtml(row.serviceType)}</td>
+            <td style="text-align:right">${row.timesHeld}</td>
+            <td style="text-align:right">${row.men}</td>
+            <td style="text-align:right">${row.women}</td>
+            <td style="text-align:right">${row.adults}</td>
+            <td style="text-align:right">${row.youth}</td>
+            <td style="text-align:right">${row.children}</td>
+            <td style="text-align:right">${row.totalAttendance}</td>
+            <td style="text-align:right">${row.averageAttendance.toFixed(1)}</td>
+            <td style="text-align:right">${row.minAttendance}</td>
+            <td style="text-align:right">${row.maxAttendance}</td>
+            <td style="text-align:right">${Number(row.totalIncome || 0).toFixed(2)}</td>
+          </tr>
+        `
+      )
+      .join("");
+
+    const detailRows = headquartersReport.detailedRecords
+      .map(
+        (row) => `
+          <tr>
+            <td>${escapeHtml(row.formattedDate)}</td>
+            <td>${escapeHtml(row.dayOfWeek || "-")}</td>
+            <td>${escapeHtml(row.branch)}</td>
+            <td>${escapeHtml(row.serviceType)}</td>
+            <td style="text-align:right">${row.men}</td>
+            <td style="text-align:right">${row.women}</td>
+            <td style="text-align:right">${row.adults}</td>
+            <td style="text-align:right">${row.youth}</td>
+            <td style="text-align:right">${row.children}</td>
+            <td style="text-align:right">${row.totalAttendance}</td>
+            <td style="text-align:right">${Number(row.totalIncome || 0).toFixed(2)}</td>
+          </tr>
+        `
+      )
+      .join("");
+
+    const specialRows = headquartersReport.specialProgrammeRecords
+      .map(
+        (row) => `
+          <tr>
+            <td>${escapeHtml(row.formattedDate)}</td>
+            <td>${escapeHtml(row.dayOfWeek || "-")}</td>
+            <td>${escapeHtml(row.programmeName)}</td>
+            <td>${escapeHtml(row.programmeType)}</td>
+            <td>${escapeHtml(row.location)}</td>
+            <td style="text-align:right">${row.men}</td>
+            <td style="text-align:right">${row.women}</td>
+            <td style="text-align:right">${row.adults}</td>
+            <td style="text-align:right">${row.youth}</td>
+            <td style="text-align:right">${row.children}</td>
+            <td style="text-align:right">${row.totalAttendance}</td>
+            <td style="text-align:right">${Number(row.totalIncome || 0).toFixed(2)}</td>
+            <td>${escapeHtml(row.remarks || "-")}</td>
+          </tr>
+        `
+      )
+      .join("");
+
+    const html = `
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>${escapeHtml(headquartersReport.title)}</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 24px; color: #111827; }
+            h1, h2 { margin: 0 0 12px; }
+            p { line-height: 1.55; }
+            .intro, .overview { margin-bottom: 16px; }
+            .overview-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+            .overview-card { border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; background: #f8fafc; }
+            .overview-card .label { font-size: 11px; text-transform: uppercase; color: #475569; font-weight: 700; }
+            .overview-card .value { font-size: 18px; font-weight: 700; margin-top: 4px; }
+            table { width: 100%; border-collapse: collapse; margin: 12px 0 24px; }
+            th, td { border: 1px solid #cbd5e1; padding: 8px; font-size: 12px; vertical-align: top; }
+            th { background: #f1f5f9; text-align: left; }
+          </style>
+        </head>
+        <body>
+          <h1>${escapeHtml(headquartersReport.title)}</h1>
+          <div class="intro">
+            <p>${escapeHtml(headquartersReport.overviewText)}</p>
+          </div>
+          <div class="overview-grid">
+            <div class="overview-card"><div class="label">Services Held</div><div class="value">${headquartersReport.totals.serviceCount}</div></div>
+            <div class="overview-card"><div class="label">Adults</div><div class="value">${headquartersReport.totals.adults}</div><div>Male ${headquartersReport.totals.men} | Female ${headquartersReport.totals.women}</div></div>
+            <div class="overview-card"><div class="label">Youth / Children</div><div class="value">${headquartersReport.totals.youth} / ${headquartersReport.totals.children}</div></div>
+            <div class="overview-card"><div class="label">Total Attendance</div><div class="value">${headquartersReport.totals.totalAttendance}</div></div>
+            <div class="overview-card"><div class="label">Total Income</div><div class="value">${Number(headquartersReport.totals.totalIncome || 0).toFixed(2)}</div></div>
+            <div class="overview-card"><div class="label">Special Programmes</div><div class="value">${headquartersReport.totals.specialProgrammeCount}</div></div>
+            <div class="overview-card"><div class="label">Special Attendance</div><div class="value">${headquartersReport.totals.specialProgrammeAttendance}</div></div>
+          </div>
+
+          <h2>Core Service Monthly Summary</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Service Type</th>
+                <th style="text-align:right">Held</th>
+                <th style="text-align:right">Male</th>
+                <th style="text-align:right">Female</th>
+                <th style="text-align:right">Adults</th>
+                <th style="text-align:right">Youth</th>
+                <th style="text-align:right">Children</th>
+                <th style="text-align:right">Total</th>
+                <th style="text-align:right">Average</th>
+                <th style="text-align:right">Min</th>
+                <th style="text-align:right">Max</th>
+                <th style="text-align:right">Income (XCD)</th>
+              </tr>
+            </thead>
+            <tbody>${coreRows}</tbody>
+          </table>
+
+          <h2>Detailed Monthly Service Records</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Day</th>
+                <th>Branch</th>
+                <th>Service Type</th>
+                <th style="text-align:right">Male</th>
+                <th style="text-align:right">Female</th>
+                <th style="text-align:right">Adults</th>
+                <th style="text-align:right">Youth</th>
+                <th style="text-align:right">Children</th>
+                <th style="text-align:right">Total</th>
+                <th style="text-align:right">Income (XCD)</th>
+              </tr>
+            </thead>
+            <tbody>${detailRows || "<tr><td colspan='11'>No service records found for this month.</td></tr>"}</tbody>
+          </table>
+
+          <h2>Special Programme Attendance</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Day</th>
+                <th>Programme</th>
+                <th>Type</th>
+                <th>Location</th>
+                <th style="text-align:right">Male</th>
+                <th style="text-align:right">Female</th>
+                <th style="text-align:right">Adults</th>
+                <th style="text-align:right">Youth</th>
+                <th style="text-align:right">Children</th>
+                <th style="text-align:right">Total</th>
+                <th style="text-align:right">Income (XCD)</th>
+                <th>Remarks</th>
+              </tr>
+            </thead>
+            <tbody>${specialRows || "<tr><td colspan='13'>No special programmes recorded for this month.</td></tr>"}</tbody>
+          </table>
+          <script>window.print();</script>
+        </body>
+      </html>
+    `;
+
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    setHeadquartersActionMessage("Headquarters attendance report opened for printing.");
+    setHeadquartersError("");
   };
 
   const handleUseAiAsLetterDraft = () => {
@@ -1975,6 +2419,251 @@ export default function MonthlyAnalytics({
 
       {!isFinancialEntryOnly && (
       <>
+      <Card className="p-6 no-print">
+        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-5">
+          <div>
+            <h3 className="font-semibold text-slate-800 flex items-center gap-2">
+              <FileText size={18} className="text-blue-700" />
+              Headquarters Attendance Report
+            </h3>
+            <p className="text-sm text-slate-500 mt-1 max-w-4xl">
+              A simplified monthly report for headquarters with a short overview, attendance-first
+              service records, income by service, monthly averages for Sunday, Tuesday, and
+              Thursday services, and a separate special programme attendance section.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="secondary"
+              onClick={handleCopyHeadquartersReport}
+              className="text-xs px-3 py-1"
+            >
+              Copy report
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={handleDownloadHeadquartersReport}
+              className="text-xs px-3 py-1"
+            >
+              <Download size={14} />
+              Save report file
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={handleDownloadServiceRecordsCsv}
+              className="text-xs px-3 py-1"
+            >
+              <Download size={14} />
+              Service CSV
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handlePrintHeadquartersReport}
+              className="text-xs px-3 py-1"
+            >
+              <Printer size={14} />
+              Print HQ report
+            </Button>
+          </div>
+        </div>
+
+        {headquartersError && (
+          <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {headquartersError}
+          </div>
+        )}
+
+        {!headquartersError && headquartersActionMessage && (
+          <div className="mb-4 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+            {headquartersActionMessage}
+          </div>
+        )}
+
+        <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-4 mb-5">
+          <h4 className="font-semibold text-blue-950 mb-2">Introduction / Overview</h4>
+          <p className="text-sm text-slate-700 leading-6">{headquartersReport.overviewText}</p>
+        </div>
+
+        <div className="grid md:grid-cols-4 xl:grid-cols-7 gap-3 text-sm mb-6">
+          <div className="rounded border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs uppercase font-semibold text-slate-500">Services Held</p>
+            <p className="text-xl font-bold">{headquartersReport.totals.serviceCount}</p>
+          </div>
+          <div className="rounded border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs uppercase font-semibold text-slate-500">Adults</p>
+            <p className="text-xl font-bold">{headquartersReport.totals.adults}</p>
+            <p className="text-xs text-slate-500 mt-1">
+              Male {headquartersReport.totals.men} | Female {headquartersReport.totals.women}
+            </p>
+          </div>
+          <div className="rounded border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs uppercase font-semibold text-slate-500">Youth</p>
+            <p className="text-xl font-bold">{headquartersReport.totals.youth}</p>
+          </div>
+          <div className="rounded border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs uppercase font-semibold text-slate-500">Children</p>
+            <p className="text-xl font-bold">{headquartersReport.totals.children}</p>
+          </div>
+          <div className="rounded border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs uppercase font-semibold text-slate-500">Total Attendance</p>
+            <p className="text-xl font-bold">{headquartersReport.totals.totalAttendance}</p>
+          </div>
+          <div className="rounded border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs uppercase font-semibold text-slate-500">Total Income</p>
+            <p className="text-xl font-bold">{Number(headquartersReport.totals.totalIncome || 0).toFixed(2)}</p>
+          </div>
+          <div className="rounded border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs uppercase font-semibold text-slate-500">Special Programmes</p>
+            <p className="text-xl font-bold">{headquartersReport.totals.specialProgrammeCount}</p>
+            <p className="text-xs text-slate-500 mt-1">
+              Attendance {headquartersReport.totals.specialProgrammeAttendance}
+            </p>
+          </div>
+        </div>
+
+        <div className="mb-6 overflow-auto rounded border border-slate-200">
+          <table className="w-full min-w-[1080px] text-xs md:text-sm">
+            <caption className="bg-slate-100 px-3 py-2 text-left font-semibold text-slate-800">
+              Core Service Monthly Summary
+            </caption>
+            <thead className="bg-slate-50">
+              <tr>
+                <th className={HEADQUARTERS_TABLE_CELL_CLASS}>Service Type</th>
+                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Held</th>
+                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Male</th>
+                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Female</th>
+                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Adults</th>
+                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Youth</th>
+                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Children</th>
+                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Total</th>
+                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Average</th>
+                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Min</th>
+                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Max</th>
+                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Income (XCD)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {headquartersReport.coreServiceRows.map((row) => (
+                <tr key={row.serviceType} className="border-t border-slate-100">
+                  <td className={HEADQUARTERS_TABLE_CELL_CLASS}>{row.serviceType}</td>
+                  <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{row.timesHeld}</td>
+                  <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{row.men}</td>
+                  <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{row.women}</td>
+                  <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right font-semibold`}>{row.adults}</td>
+                  <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{row.youth}</td>
+                  <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{row.children}</td>
+                  <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right font-semibold`}>{row.totalAttendance}</td>
+                  <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{row.averageAttendance.toFixed(1)}</td>
+                  <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{row.minAttendance}</td>
+                  <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{row.maxAttendance}</td>
+                  <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{Number(row.totalIncome || 0).toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mb-6 overflow-auto rounded border border-slate-200">
+          <table className="w-full min-w-[1180px] text-xs md:text-sm">
+            <caption className="bg-slate-100 px-3 py-2 text-left font-semibold text-slate-800">
+              Detailed Monthly Service Records
+            </caption>
+            <thead className="bg-slate-50">
+              <tr>
+                <th className={HEADQUARTERS_TABLE_CELL_CLASS}>Date</th>
+                <th className={HEADQUARTERS_TABLE_CELL_CLASS}>Day</th>
+                <th className={HEADQUARTERS_TABLE_CELL_CLASS}>Branch</th>
+                <th className={HEADQUARTERS_TABLE_CELL_CLASS}>Service Type</th>
+                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Male</th>
+                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Female</th>
+                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Adults</th>
+                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Youth</th>
+                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Children</th>
+                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Total</th>
+                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Income (XCD)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {headquartersReport.detailedRecords.length === 0 ? (
+                <tr>
+                  <td className={HEADQUARTERS_TABLE_CELL_CLASS} colSpan={11}>
+                    No service records found for this month.
+                  </td>
+                </tr>
+              ) : (
+                headquartersReport.detailedRecords.map((row) => (
+                  <tr key={row.id} className="border-t border-slate-100">
+                    <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} whitespace-nowrap`}>{row.formattedDate}</td>
+                    <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} whitespace-nowrap`}>{row.dayOfWeek || "-"}</td>
+                    <td className={HEADQUARTERS_TABLE_CELL_CLASS}>{row.branch}</td>
+                    <td className={HEADQUARTERS_TABLE_CELL_CLASS}>{row.serviceType}</td>
+                    <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{row.men}</td>
+                    <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{row.women}</td>
+                    <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right font-semibold`}>{row.adults}</td>
+                    <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{row.youth}</td>
+                    <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{row.children}</td>
+                    <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right font-semibold`}>{row.totalAttendance}</td>
+                    <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{Number(row.totalIncome || 0).toFixed(2)}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="overflow-auto rounded border border-slate-200">
+          <table className="w-full min-w-[1380px] text-xs md:text-sm">
+            <caption className="bg-slate-100 px-3 py-2 text-left font-semibold text-slate-800">
+              Special Programme Attendance
+            </caption>
+            <thead className="bg-slate-50">
+              <tr>
+                <th className={HEADQUARTERS_TABLE_CELL_CLASS}>Date</th>
+                <th className={HEADQUARTERS_TABLE_CELL_CLASS}>Day</th>
+                <th className={HEADQUARTERS_TABLE_CELL_CLASS}>Programme</th>
+                <th className={HEADQUARTERS_TABLE_CELL_CLASS}>Type</th>
+                <th className={HEADQUARTERS_TABLE_CELL_CLASS}>Location</th>
+                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Male</th>
+                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Female</th>
+                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Adults</th>
+                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Youth</th>
+                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Children</th>
+                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Total</th>
+                <th className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>Income (XCD)</th>
+                <th className={HEADQUARTERS_TABLE_CELL_CLASS}>Remarks</th>
+              </tr>
+            </thead>
+            <tbody>
+              {headquartersReport.specialProgrammeRecords.length === 0 ? (
+                <tr>
+                  <td className={HEADQUARTERS_TABLE_CELL_CLASS} colSpan={13}>
+                    No special programmes recorded for this month.
+                  </td>
+                </tr>
+              ) : (
+                headquartersReport.specialProgrammeRecords.map((row) => (
+                  <tr key={row.id} className="border-t border-slate-100">
+                    <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} whitespace-nowrap`}>{row.formattedDate}</td>
+                    <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} whitespace-nowrap`}>{row.dayOfWeek || "-"}</td>
+                    <td className={HEADQUARTERS_TABLE_CELL_CLASS}>{row.programmeName}</td>
+                    <td className={HEADQUARTERS_TABLE_CELL_CLASS}>{row.programmeType}</td>
+                    <td className={HEADQUARTERS_TABLE_CELL_CLASS}>{row.location}</td>
+                    <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{row.men}</td>
+                    <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{row.women}</td>
+                    <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right font-semibold`}>{row.adults}</td>
+                    <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{row.youth}</td>
+                    <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{row.children}</td>
+                    <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right font-semibold`}>{row.totalAttendance}</td>
+                    <td className={`${HEADQUARTERS_TABLE_CELL_CLASS} text-right`}>{Number(row.totalIncome || 0).toFixed(2)}</td>
+                    <td className={HEADQUARTERS_TABLE_CELL_CLASS}>{row.remarks || "-"}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
       <Card className="p-6 no-print">
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-4">
           <div>
