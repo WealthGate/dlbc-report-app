@@ -437,10 +437,10 @@ const buildHeadquartersAttendanceReportData = (summary, monthLabel, countryLabel
     };
   });
 
-  const overviewText = `This report presents a simple attendance and income summary for ${monthLabel}, focusing on Sunday, Tuesday, and Thursday services, followed by the detailed monthly service records and any special programme attendance.`;
+  const overviewText = `This executive report is submitted to Headquarters to present the monthly attendance and service-income records for ${countryLabel} for ${monthLabel}. It summarizes adult male and female attendance, youth and children attendance, core service averages, and special programme attendance for clear administrative review.`;
 
   return {
-    title: `Headquarters Attendance Report - ${monthLabel}`,
+    title: `Executive Monthly Attendance Report - ${monthLabel}`,
     overviewText,
     totals,
     coreServiceRows,
@@ -453,6 +453,7 @@ const buildHeadquartersAttendanceReportText = (reportData) => {
   const lines = [
     reportData.title,
     "",
+    "Introduction",
     reportData.overviewText,
     "",
     "Overview",
@@ -1363,6 +1364,7 @@ export default function MonthlyAnalytics({
         <body>
           <h1>${escapeHtml(headquartersReport.title)}</h1>
           <div class="intro">
+            <h2>Introduction</h2>
             <p>${escapeHtml(headquartersReport.overviewText)}</p>
           </div>
           <div class="overview-grid">
@@ -2480,7 +2482,7 @@ export default function MonthlyAnalytics({
         )}
 
         <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-4 mb-5">
-          <h4 className="font-semibold text-blue-950 mb-2">Introduction / Overview</h4>
+          <h4 className="font-semibold text-blue-950 mb-2">Introduction</h4>
           <p className="text-sm text-slate-700 leading-6">{headquartersReport.overviewText}</p>
         </div>
 
