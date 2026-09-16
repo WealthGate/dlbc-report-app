@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, where, writeBatch } from "firebase/firestore";
+import { collection, doc, getDoc, getDocFromServer, getDocsFromServer, query, runTransaction, setDoc, where } from "firebase/firestore";
+import { persistMonthlyExpenses } from "../services/monthlyExpenseStore";
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { BarChart2, DollarSign, Download, FileText, Loader, MapPin, Printer } from "lucide-react";
 import {
@@ -19,7 +20,6 @@ import {
   Card,
   createMonthlyExpenseRowId,
   defaultMonthlyExpenseRow,
-  formatExpenseDisplay,
   formatLocalDateKey,
   formatLocalMonthKey,
   getMonthlyExpensePurposeLabel,
@@ -31,26 +31,142 @@ import {
   normalizeExpenseRow,
   normalizeMonthlyExpenseRow,
   openMailTo,
+  parseCurrencyAmount,
   parseReportDate,
   resolveExpenseTargetLabel
 } from "./viewShared";
 
+function buildMonthlyFinancesSection(monthLabel, summary) {
+  const {
+    incomeByBranch,
+    expenseByTarget,
+    totalIncome,
+    totalExpense,
+    balanceBroughtForward,
+    closingBalance
+  } = summary;
+
+  let body = "";
+  body += `FINANCES\n`;
+  body += `In the month of ${monthLabel}, the total recorded income from tithes, offerings and other sources amounted to XCD ${totalIncome.toFixed(
+    2
+  )}.\n`;
+  const branchIncomeEntries = Object.entries(incomeByBranch || {}).sort((a, b) =>
+    a[0].localeCompare(b[0])
+  );
+  if (branchIncomeEntries.length > 0) {
+    body += `Income by branch location:\n`;
+    branchIncomeEntries.forEach(([name, total]) => {
+      body += `- ${name}: XCD ${Number(total || 0).toFixed(2)}\n`;
+    });
+  }
+  const expenseTargetEntries = Object.entries(expenseByTarget || {}).sort((a, b) =>
+    a[0].localeCompare(b[0])
+  );
+  if (expenseTargetEntries.length > 0) {
+    body += `Expense by branch/purpose:\n`;
+    expenseTargetEntries.forEach(([target, total]) => {
+      body += `- ${target}: XCD ${Number(total || 0).toFixed(2)}\n`;
+    });
+  }
+  body += `Total expenses recorded for the month were XCD ${totalExpense.toFixed(
+    2
+  )}.\n`;
+  body += `Balance brought forward is XCD ${Number(balanceBroughtForward || 0).toFixed(2)}.\n`;
+  body += `The net movement for the month is XCD ${(totalIncome - totalExpense).toFixed(2)}.\n`;
+  body += `Closing balance is XCD ${Number(closingBalance || 0).toFixed(2)}.`;
+  return body;
+}
+
+const MONTHLY_FINANCE_HEADINGS = new Set([
+  "FINANCES",
+  "FINANCIAL NOTES",
+  "FINANCIAL DATA",
+  "FINANCIAL SUMMARY"
+]);
+
+const MONTHLY_LETTER_SECTION_HEADINGS = new Set([
+  "TITLE",
+  "OVERVIEW",
+  "INTRODUCTION",
+  "SUMMARY OF ACTIVITIES",
+  "BRANCH / DEPARTMENT REPORTS",
+  "BRANCH/DEPARTMENT REPORTS",
+  "MAJOR OUTCOMES",
+  "CHALLENGES ENCOUNTERED",
+  "FINANCES",
+  "FINANCIAL NOTES",
+  "FINANCIAL DATA",
+  "FINANCIAL SUMMARY",
+  "RECOMMENDATIONS",
+  "ATTENDANCE AND PROGRAMMES BY BRANCH",
+  "SPECIAL PROGRAMMES / OUTREACH",
+  "OTHER HIGHLIGHTS / NOTES",
+  "CONCLUSION"
+]);
+
+const getMonthlyLetterHeadingKey = (line = "") =>
+  String(line || "")
+    .trim()
+    .replace(/:$/, "")
+    .replace(/\s+/g, " ")
+    .toUpperCase();
+
+const isMonthlyLetterSectionHeading = (line = "") => {
+  const key = getMonthlyLetterHeadingKey(line);
+  if (MONTHLY_LETTER_SECTION_HEADINGS.has(key)) return true;
+  return /^[A-Z][A-Z\s/&-]{2,}$/.test(String(line || "").trim());
+};
+
+function replaceMonthlyFinancesSection(text, monthLabel, summary) {
+  const currentText = String(text || "");
+  const financeSection = buildMonthlyFinancesSection(monthLabel, summary);
+  if (!currentText.trim()) return currentText;
+
+  const lines = currentText.split(/\r?\n/);
+  const financeStart = lines.findIndex((line) =>
+    MONTHLY_FINANCE_HEADINGS.has(getMonthlyLetterHeadingKey(line))
+  );
+  if (financeStart === -1) {
+    const conclusionStart = lines.findIndex(
+      (line) => getMonthlyLetterHeadingKey(line) === "CONCLUSION"
+    );
+    if (conclusionStart === -1) {
+      return [currentText.trimEnd(), "", financeSection]
+        .join("\n")
+        .replace(/\n{4,}/g, "\n\n\n");
+    }
+    return [
+      ...lines.slice(0, conclusionStart),
+      financeSection,
+      "",
+      ...lines.slice(conclusionStart)
+    ]
+      .join("\n")
+      .replace(/\n{4,}/g, "\n\n\n");
+  }
+
+  const nextSection = lines.findIndex(
+    (line, index) =>
+      index > financeStart &&
+      isMonthlyLetterSectionHeading(line) &&
+      !MONTHLY_FINANCE_HEADINGS.has(getMonthlyLetterHeadingKey(line))
+  );
+  const before = lines.slice(0, financeStart);
+  const after = nextSection === -1 ? [] : lines.slice(nextSection);
+  const replacement = financeSection.split("\n");
+  return [...before, ...replacement, "", ...after].join("\n").replace(/\n{4,}/g, "\n\n\n");
+}
+
 function buildMonthlyLetter(monthLabel, summary, countryLabel) {
   const {
     branchSummaries,
-    incomeByBranch,
-    expenseByTarget,
     totalMen,
     totalWomen,
     totalChildren,
     totalYouth,
     totalNewVisitors,
-    totalIncome,
-    totalExpense,
-    balanceBroughtForward,
-    closingBalance,
     serviceCount,
-    monthReports,
     notesForMonth,
     serviceRecordSummary,
     monthlyReportOverview
@@ -93,34 +209,7 @@ function buildMonthlyLetter(monthLabel, summary, countryLabel) {
     body += `\n`;
   }
 
-  body += `FINANCES\n`;
-  body += `In the month of ${monthLabel}, the total recorded income from tithes, offerings and other sources amounted to XCD ${totalIncome.toFixed(
-    2
-  )}.\n`;
-  const branchIncomeEntries = Object.entries(incomeByBranch || {}).sort((a, b) =>
-    a[0].localeCompare(b[0])
-  );
-  if (branchIncomeEntries.length > 0) {
-    body += `Income by branch location:\n`;
-    branchIncomeEntries.forEach(([name, total]) => {
-      body += `- ${name}: XCD ${Number(total || 0).toFixed(2)}\n`;
-    });
-  }
-  const expenseTargetEntries = Object.entries(expenseByTarget || {}).sort((a, b) =>
-    a[0].localeCompare(b[0])
-  );
-  if (expenseTargetEntries.length > 0) {
-    body += `Expense by branch/purpose:\n`;
-    expenseTargetEntries.forEach(([target, total]) => {
-      body += `- ${target}: XCD ${Number(total || 0).toFixed(2)}\n`;
-    });
-  }
-  body += `Total expenses recorded for the month were XCD ${totalExpense.toFixed(
-    2
-  )}.\n`;
-  body += `Balance brought forward is XCD ${Number(balanceBroughtForward || 0).toFixed(2)}.\n`;
-  body += `The net movement for the month is XCD ${(totalIncome - totalExpense).toFixed(2)}.\n`;
-  body += `Closing balance is XCD ${Number(closingBalance || 0).toFixed(2)}.\n\n`;
+  body += `${buildMonthlyFinancesSection(monthLabel, summary)}\n\n`;
 
   if (notesForMonth.length > 0) {
     body += `OTHER HIGHLIGHTS / NOTES\n`;
@@ -152,7 +241,7 @@ const sanitizeMonthlyExpenseRows = (rows = [], month = "") =>
       date: row.date,
       purpose: row.purpose,
       otherDetails: row.otherDetails?.trim() || "",
-      amount: parseFloat(row.amount || 0) || 0,
+      amount: parseCurrencyAmount(row.amount),
       createdAt: row.createdAt || "",
       updatedAt: row.updatedAt || "",
       savedBy: row.savedBy || ""
@@ -173,13 +262,16 @@ const validateMonthlyExpenseRow = (row) => {
   if (normalized.purpose === "Other" && !String(normalized.otherDetails || "").trim()) {
     return "Please enter more details for rows with purpose 'Other'.";
   }
-  if (!(parseFloat(normalized.amount || 0) > 0)) {
+  if (!(parseCurrencyAmount(normalized.amount) > 0)) {
     return "Please enter an amount greater than zero.";
   }
   return "";
 };
 
 const getReportBranchName = (report = {}) => {
+  if (report.isCombinedService || report.branch === "Combined service") {
+    return "All locations (combined)";
+  }
   if (report.branch === "Other" && report.otherBranch) return report.otherBranch;
   if (report.branch === "Headquarters") return "Goodwill";
   return report.branch || "Unknown";
@@ -189,7 +281,7 @@ const buildFinancialLedgerEntries = (summary) => {
   const incomeEntries = (summary?.incomeRegisterEntries || []).map((row) => ({
     date: row.date || "",
     details: `${row.branch || "-"} | ${row.service || "-"} | ${row.source || "Income"}`,
-    income: parseFloat(row.amount || 0) || 0,
+    income: parseCurrencyAmount(row.amount),
     expenditure: 0
   }));
   const expenseEntries = (summary?.monthlyExpenseEntries || []).map((row) => ({
@@ -198,7 +290,7 @@ const buildFinancialLedgerEntries = (summary) => {
       row.otherDetails && row.purpose !== "Other" ? ` | ${row.otherDetails}` : ""
     }`,
     income: 0,
-    expenditure: parseFloat(row.amount || 0) || 0
+    expenditure: parseCurrencyAmount(row.amount)
   }));
 
   const combined = [...incomeEntries, ...expenseEntries].sort((a, b) => {
@@ -210,7 +302,7 @@ const buildFinancialLedgerEntries = (summary) => {
     return a.details.localeCompare(b.details);
   });
 
-  let runningBalance = Number(summary?.balanceBroughtForward || 0);
+  let runningBalance = parseCurrencyAmount(summary?.balanceBroughtForward);
   return combined.map((entry) => {
     runningBalance += entry.income - entry.expenditure;
     return {
@@ -740,9 +832,18 @@ export default function MonthlyAnalytics({
   const [headquartersActionMessage, setHeadquartersActionMessage] = useState("");
   const [headquartersError, setHeadquartersError] = useState("");
   const [loadingSummary, setLoadingSummary] = useState(false);
+  const [monthlyContextError, setMonthlyContextError] = useState("");
+  const [loadedContextKey, setLoadedContextKey] = useState("");
+  const [contextReload, setContextReload] = useState(0);
+  const summaryRevision = useRef("");
+  const latestSummary = useRef(null);
+  const expenseBaseline = useRef(new Map());
+  const legacyExpenseBaseline = useRef([]);
+  const [expenseRegisterInitialized, setExpenseRegisterInitialized] = useState(false);
   const [savingSummary, setSavingSummary] = useState(false);
   const [showCharts, setShowCharts] = useState(true);
   const [printChartMode, setPrintChartMode] = useState("none");
+  const [includeDetailedServices, setIncludeDetailedServices] = useState(true);
   const [balanceBroughtForward, setBalanceBroughtForward] = useState("");
   const [savingFinancialEntry, setSavingFinancialEntry] = useState(false);
   const [loadingMonthlyExpenseRows, setLoadingMonthlyExpenseRows] = useState(false);
@@ -755,6 +856,9 @@ export default function MonthlyAnalytics({
   const countryKey = userProfile?.countryKey || normalizeCountryKey(countryLabel);
   const canManageMonthlyExpenses = canEditMonthlyExpenses(userProfile);
   const canGenerateOfficialMonthlyReport = canReadCountryReports(userProfile);
+  const isFinancialEntryOnly = initialSection === "financial-entry";
+  const contextKey = `${countryKey}__${selectedMonth}`;
+  const monthlyContextReady = loadedContextKey === contextKey && !monthlyContextError;
   const shiftMonth = (value, delta) => {
     if (!value || !value.includes("-")) return value;
     const [yearStr, monthStr] = value.split("-");
@@ -802,7 +906,7 @@ export default function MonthlyAnalytics({
       monthlyExpenseRows,
       selectedMonth
     );
-    const broughtForward = parseFloat(balanceBroughtForward || 0) || 0;
+    const broughtForward = parseCurrencyAmount(balanceBroughtForward);
     const branchesMap = {};
     let totalMen = 0;
     let totalWomen = 0;
@@ -863,7 +967,7 @@ export default function MonthlyAnalytics({
         normalizeExpenseRow(row, branchName)
       );
       const expense = expenseRows.reduce(
-        (sum, row) => sum + (parseFloat(row.amount || 0) || 0),
+        (sum, row) => sum + parseCurrencyAmount(row.amount),
         0
       );
 
@@ -871,7 +975,7 @@ export default function MonthlyAnalytics({
       totalExpenseFromReports += expense;
       incomeByBranch[branchName] = (incomeByBranch[branchName] || 0) + income;
       expenseRows.forEach((row) => {
-        const amount = parseFloat(row.amount || 0) || 0;
+        const amount = parseCurrencyAmount(row.amount);
         if (!amount) return;
         const target = resolveExpenseTargetLabel(row, branchName);
         legacyExpenseByTarget[target] = (legacyExpenseByTarget[target] || 0) + amount;
@@ -879,18 +983,18 @@ export default function MonthlyAnalytics({
     });
 
     const monthlyExpenseTotal = normalizedMonthlyExpenses.reduce(
-      (sum, row) => sum + (parseFloat(row.amount || 0) || 0),
+      (sum, row) => sum + parseCurrencyAmount(row.amount),
       0
     );
     const expenseByTarget = {};
     normalizedMonthlyExpenses.forEach((row) => {
-      const amount = parseFloat(row.amount || 0) || 0;
+      const amount = parseCurrencyAmount(row.amount);
       if (!amount) return;
       const purpose = getMonthlyExpensePurposeLabel(row);
       const key = `Purpose: ${purpose}`;
       expenseByTarget[key] = (expenseByTarget[key] || 0) + amount;
     });
-    const useMonthlyExpenseRegister = normalizedMonthlyExpenses.length > 0;
+    const useMonthlyExpenseRegister = expenseRegisterInitialized || normalizedMonthlyExpenses.length > 0;
     const totalExpense = useMonthlyExpenseRegister ? monthlyExpenseTotal : totalExpenseFromReports;
     const effectiveExpenseByTarget = useMonthlyExpenseRegister
       ? expenseByTarget
@@ -1055,7 +1159,8 @@ export default function MonthlyAnalytics({
       ...computedSummary,
       ledgerEntries: buildFinancialLedgerEntries(computedSummary)
     };
-  }, [reports, selectedMonth, monthlyExpenseRows, balanceBroughtForward]);
+  }, [reports, selectedMonth, monthlyExpenseRows, balanceBroughtForward, expenseRegisterInitialized]);
+  useEffect(() => { latestSummary.current = summary; }, [summary]);
 
 
  const monthLabel = useMemo(() => {
@@ -1118,7 +1223,7 @@ export default function MonthlyAnalytics({
     return () => {
       isMounted = false;
     };
-  }, [selectedMonth, countryKey, canGenerateOfficialMonthlyReport]);
+  }, [selectedMonth, countryKey, canGenerateOfficialMonthlyReport, db]);
 
   // Load saved monthly letter and saved financial rows for the selected month.
   useEffect(() => {
@@ -1134,6 +1239,8 @@ export default function MonthlyAnalytics({
 
       setLoadingSummary(true);
       setLoadingMonthlyExpenseRows(true);
+      setLoadedContextKey("");
+      setMonthlyContextError("");
       try {
         const summaryRef = doc(db, "monthly_summaries", `${countryKey}__${selectedMonth}`);
         const expensesQuery = query(
@@ -1143,24 +1250,28 @@ export default function MonthlyAnalytics({
         );
 
         const [summarySnap, expenseSnap] = await Promise.all([
-          getDoc(summaryRef),
-          getDocs(expensesQuery)
+          getDocFromServer(summaryRef),
+          getDocsFromServer(expensesQuery)
         ]);
         if (!isMounted) return;
 
         let legacyRows = [];
+        setExpenseRegisterInitialized(Boolean(summarySnap.data()?.expenseRegisterInitialized));
+        summaryRevision.current = summarySnap.exists() ? summarySnap.data().updatedAt || "" : "";
         if (summarySnap.exists()) {
           const data = summarySnap.data();
-          setCustomText(data.text || "");
+          setCustomText(data.text || buildMonthlyLetter(monthLabel, latestSummary.current, countryLabel));
           const savedMode = data.printChartMode || (data.includeChartsInPrint ? "both" : "none");
           setPrintChartMode(savedMode);
+          setIncludeDetailedServices(data.includeDetailedServices !== false);
           setBalanceBroughtForward(
             data.balanceBroughtForward != null ? String(data.balanceBroughtForward) : ""
           );
-          legacyRows = Array.isArray(data.monthlyExpenses) ? data.monthlyExpenses : [];
+          legacyRows = !data.expenseRegisterInitialized && Array.isArray(data.monthlyExpenses) ? data.monthlyExpenses : [];
         } else {
-          setCustomText(buildMonthlyLetter(monthLabel, summary, countryLabel));
+          setCustomText(buildMonthlyLetter(monthLabel, latestSummary.current, countryLabel));
           setPrintChartMode("none");
+          setIncludeDetailedServices(true);
           setBalanceBroughtForward("");
         }
 
@@ -1182,21 +1293,22 @@ export default function MonthlyAnalytics({
             return getMonthlyExpensePurposeLabel(a).localeCompare(getMonthlyExpensePurposeLabel(b));
           });
 
+        expenseBaseline.current = new Map(savedRows.map(row => [row.id, row]));
+        legacyExpenseBaseline.current = savedRows.length ? [] : legacyRows.map((row, index) => normalizeMonthlyExpenseRow({ ...row, id: "", localId: `legacy-${index}` }, selectedMonth));
         if (savedRows.length > 0) {
           setMonthlyExpenseRows(savedRows);
         } else if (legacyRows.length > 0) {
           setMonthlyExpenseRows(
-            legacyRows.map((row) => normalizeMonthlyExpenseRow(row, selectedMonth))
+            legacyExpenseBaseline.current
           );
         } else {
           setMonthlyExpenseRows([defaultMonthlyExpenseRow(`${selectedMonth}-01`)]);
         }
+        setLoadedContextKey(`${countryKey}__${selectedMonth}`);
       } catch (e) {
         console.error("Error loading monthly reporting context:", e);
         if (!isMounted) return;
-        setCustomText(buildMonthlyLetter(monthLabel, summary, countryLabel));
-        setBalanceBroughtForward("");
-        setMonthlyExpenseRows([defaultMonthlyExpenseRow(`${selectedMonth}-01`)]);
+        setMonthlyContextError("Your saved monthly entries could not be loaded. Saving is disabled to protect existing data. Check your connection or contact an administrator, then retry.");
       } finally {
         if (isMounted) {
           setLoadingSummary(false);
@@ -1210,7 +1322,7 @@ export default function MonthlyAnalytics({
     return () => {
       isMounted = false;
     };
-  }, [selectedMonth, monthLabel, countryKey, countryLabel]);
+  }, [selectedMonth, monthLabel, countryKey, countryLabel, db, contextReload]);
 
 
   const handleRegenerate = () => {
@@ -1218,6 +1330,38 @@ export default function MonthlyAnalytics({
     const autoText = buildMonthlyLetter(monthLabel, summary, countryLabel);
     setCustomText(autoText);
   };
+
+  const incomeByBranchSignature = JSON.stringify(summary.incomeByBranch || {});
+  const expenseByTargetSignature = JSON.stringify(summary.expenseByTarget || {});
+
+  useEffect(() => {
+    if (
+      !summary ||
+      !countryKey ||
+      loadingSummary ||
+      loadingMonthlyExpenseRows ||
+      isFinancialEntryOnly
+    ) {
+      return;
+    }
+    setCustomText((current) => {
+      const next = replaceMonthlyFinancesSection(current, monthLabel, summary);
+      return next === current ? current : next;
+    });
+  }, [
+    summary,
+    countryKey,
+    loadingSummary,
+    loadingMonthlyExpenseRows,
+    isFinancialEntryOnly,
+    monthLabel,
+    summary.totalIncome,
+    summary.totalExpense,
+    summary.balanceBroughtForward,
+    summary.closingBalance,
+    incomeByBranchSignature,
+    expenseByTargetSignature
+  ]);
 
   const handleGenerateAiReport = async () => {
     if (!countryKey) {
@@ -1235,6 +1379,11 @@ export default function MonthlyAnalytics({
     setAiReportError("");
     setAiActionMessage("");
     try {
+      if (!monthlyContextReady) return;
+      if (canManageMonthlyExpenses) {
+        const savedLetter = await saveMonthlyLetter(false);
+        if (!savedLetter) return;
+      }
       const report = await requestMonthlyAiReportGeneration(app, {
         month: selectedMonth
       });
@@ -1414,11 +1563,11 @@ export default function MonthlyAnalytics({
           <title>${escapeHtml(headquartersReport.title)}</title>
           <style>
             @page { size: landscape; margin: 10mm; }
-            body { font-family: Arial, sans-serif; margin: 18px; color: #111827; }
+            body { font-family: Arial, sans-serif; margin: 6px 18px 18px; color: #111827; }
             h1, h2, h3 { margin: 0 0 12px; }
             h3 { color: #0f172a; font-size: 14px; margin-top: 16px; }
             p { line-height: 1.55; }
-            .letterhead { width: 100%; height: auto; display: block; margin-bottom: 18px; }
+            .letterhead { width: 100%; height: auto; display: block; margin: 0 0 10px; }
             .recipient { font-family: "Times New Roman", serif; font-size: 13pt; margin-bottom: 16px; }
             .date { text-align: right; margin-bottom: 12px; }
             .signature { margin-top: 28px; font-family: "Times New Roman", serif; font-size: 13pt; }
@@ -1524,7 +1673,11 @@ export default function MonthlyAnalytics({
   };
 
   const handleUseAiAsLetterDraft = () => {
-    const nextText = aiReportRecord?.enrichedReport || "";
+    const nextText = replaceMonthlyFinancesSection(
+      aiReportRecord?.enrichedReport || "",
+      monthLabel,
+      summary
+    );
     if (!nextText.trim()) {
       setAiReportError("Generate or load an AI report before updating the letter draft.");
       return;
@@ -1544,6 +1697,7 @@ export default function MonthlyAnalytics({
   };
 
   const saveMonthlyLetter = async (notify = true) => {
+    if (!monthlyContextReady || !canManageMonthlyExpenses) return false;
     if (!summary) return false;
     if (!countryKey) {
       alert("Please set your country before saving.");
@@ -1551,30 +1705,33 @@ export default function MonthlyAnalytics({
     }
     setSavingSummary(true);
     try {
-      const sanitizedMonthlyExpenses = sanitizeMonthlyExpenseRows(
-        monthlyExpenseRows,
-        selectedMonth
-      );
+      if (!await saveAllMonthlyExpenseRows(false)) return false;
 
-      for (const row of sanitizedMonthlyExpenses) {
-        const validationError = validateMonthlyExpenseRow(row);
-        if (validationError) {
-          alert(validationError);
-          return false;
+      const syncedText = replaceMonthlyFinancesSection(customText, monthLabel, summary);
+      if (syncedText !== customText) setCustomText(syncedText);
+
+      const ref = doc(db, "monthly_summaries", `${countryKey}__${selectedMonth}`);
+      const nextRevision = new Date().toISOString();
+      await runTransaction(db, async (transaction) => {
+        const current = await transaction.get(ref);
+        if ((current.exists() ? current.data().updatedAt || "" : "") !== summaryRevision.current) {
+          throw new Error("This month's summary was changed by another user. Copy your letter draft, reload this page, and review the saved changes before saving again.");
         }
-      }
-
-      await setDoc(doc(db, "monthly_summaries", `${countryKey}__${selectedMonth}`), {
-        text: customText,
+        transaction.set(ref, {
+        text: syncedText,
         printChartMode,
-        balanceBroughtForward: parseFloat(balanceBroughtForward || 0) || 0,
-        monthlyExpenses: sanitizedMonthlyExpenses,
-        updatedAt: new Date().toISOString(),
+        includeDetailedServices,
+        balanceBroughtForward: parseCurrencyAmount(balanceBroughtForward),
+        expenseRegisterInitialized: expenseRegisterInitialized || monthlyExpenseRows.some(isMonthlyExpenseRowMeaningful),
+        monthlyExpenses: [],
+        updatedAt: nextRevision,
         month: selectedMonth,
         country: countryLabel,
         countryKey,
         savedBy: auth.currentUser?.email || null
       }, { merge: true });
+      });
+      summaryRevision.current = nextRevision;
       if (notify) alert("Monthly letter saved.");
       return true;
     } catch (e) {
@@ -1585,164 +1742,59 @@ export default function MonthlyAnalytics({
     }
   };
 
-  const saveMonthlyExpenseRow = async (index, notify = true) => {
-    if (!canManageMonthlyExpenses) return false;
-    if (!countryKey) {
-      alert("Please set your country before saving.");
-      return false;
+  const persistExpenseRows = async (indexes, deleteIndex = null, notify = true) => {
+    if (!monthlyContextReady || !canManageMonthlyExpenses || !countryKey) return false;
+    const selected = indexes.map(index => normalizeMonthlyExpenseRow(monthlyExpenseRows[index], selectedMonth))
+      .filter(isMonthlyExpenseRowMeaningful);
+    for (const row of selected) {
+      const error = validateMonthlyExpenseRow(row);
+      if (error) { alert(error); return false; }
+      if (!row.date.startsWith(selectedMonth + "-")) { alert("Each expense date must be in the selected month."); return false; }
     }
-
-    const row = normalizeMonthlyExpenseRow(monthlyExpenseRows[index], selectedMonth);
-    const validationError = validateMonthlyExpenseRow(row);
-    if (validationError) {
-      alert(validationError);
-      return false;
-    }
-
-    const rowIdentifier = row.id || row.localId || String(index);
-    setSavingExpenseRowId(rowIdentifier);
-    try {
-      const now = new Date().toISOString();
-      const rowId = row.id || doc(collection(db, "monthly_expense_records")).id;
-      await setDoc(
-        doc(db, "monthly_expense_records", rowId),
-        {
-          month: selectedMonth,
-          country: countryLabel,
-          countryKey,
-          date: row.date,
-          purpose: row.purpose,
-          otherDetails: row.otherDetails?.trim() || "",
-          amount: parseFloat(row.amount || 0) || 0,
-          createdAt: row.createdAt || now,
-          updatedAt: now,
-          savedBy: auth.currentUser?.email || null
-        },
-        { merge: true }
-      );
-
-      setMonthlyExpenseRows((prev) =>
-        prev.map((item, itemIndex) =>
-          itemIndex === index
-            ? normalizeMonthlyExpenseRow(
-                {
-                  ...item,
-                  id: rowId,
-                  createdAt: item.createdAt || now,
-                  updatedAt: now,
-                  savedBy: auth.currentUser?.email || ""
-                },
-                selectedMonth
-              )
-            : item
-        )
-      );
-      if (notify) alert("Expense row saved.");
-      return true;
-    } catch (e) {
-      alert("Error saving expense row: " + e.message);
-      return false;
-    } finally {
-      setSavingExpenseRowId("");
-    }
-  };
-
-  const saveAllMonthlyExpenseRows = async (notify = true) => {
-    if (!canManageMonthlyExpenses) return false;
-    if (!countryKey) {
-      alert("Please set your country before saving.");
-      return false;
-    }
-
-    const normalizedRows = (monthlyExpenseRows || []).map((row) =>
-      normalizeMonthlyExpenseRow(row, selectedMonth)
-    );
-    const meaningfulRows = normalizedRows.filter((row) => isMonthlyExpenseRowMeaningful(row));
-
-    for (const row of meaningfulRows) {
-      const validationError = validateMonthlyExpenseRow(row);
-      if (validationError) {
-        alert(validationError);
-        return false;
-      }
-    }
-
-    if (meaningfulRows.length === 0) {
-      if (notify) alert("There are no expense rows to save.");
-      return true;
-    }
-
+    const deleted = deleteIndex === null ? null : monthlyExpenseRows[deleteIndex];
     setSavingExpenseRowId("__all__");
     try {
-      const batch = writeBatch(db);
-      const now = new Date().toISOString();
-      const nextRows = normalizedRows.map((row) => {
-        if (!isMonthlyExpenseRowMeaningful(row)) return row;
-        const rowId = row.id || doc(collection(db, "monthly_expense_records")).id;
-        batch.set(
-          doc(db, "monthly_expense_records", rowId),
-          {
-            month: selectedMonth,
-            country: countryLabel,
-            countryKey,
-            date: row.date,
-            purpose: row.purpose,
-            otherDetails: row.otherDetails?.trim() || "",
-            amount: parseFloat(row.amount || 0) || 0,
-            createdAt: row.createdAt || now,
-            updatedAt: now,
-            savedBy: auth.currentUser?.email || null
-          },
-          { merge: true }
-        );
-        return normalizeMonthlyExpenseRow(
-          {
-            ...row,
-            id: rowId,
-            createdAt: row.createdAt || now,
-            updatedAt: now,
-            savedBy: auth.currentUser?.email || ""
-          },
-          selectedMonth
-        );
+      const saved = await persistMonthlyExpenses({ db, countryKey, country: countryLabel,
+        month: selectedMonth, email: auth.currentUser?.email || "",
+        rows: selected.map(row => ({ ...row, amount: parseCurrencyAmount(row.amount) })),
+        baseline: expenseBaseline.current,
+        legacyRows: legacyExpenseBaseline.current.map(row => ({ ...row, amount: parseCurrencyAmount(row.amount) })),
+        summaryRevision: summaryRevision.current, deleteId: deleted?.id || deleted?.localId || ""
       });
-
-      await batch.commit();
-      setMonthlyExpenseRows(nextRows);
-      if (notify) alert("All expense rows saved.");
+      saved.forEach(row => expenseBaseline.current.set(row.id, row));
+      if (deleted?.id) expenseBaseline.current.delete(deleted.id);
+      legacyExpenseBaseline.current = [];
+      if (saved.length || deleted) setExpenseRegisterInitialized(true);
+      const byLocalId = new Map(saved.map(row => [row.localId, row]));
+      setMonthlyExpenseRows(previous => {
+        const next = previous.filter((_, index) => index !== deleteIndex).map(row => {
+          const stored = byLocalId.get(row.localId);
+          // Preserve unsaved edits on legacy rows which were migrated as a group.
+          return stored ? { ...row, id: stored.id, createdAt: stored.createdAt, updatedAt: stored.updatedAt } : row;
+        });
+        return next.length ? next : [defaultMonthlyExpenseRow(selectedMonth + "-01")];
+      });
+      if (notify) alert(deleted ? "Expense deleted." : "Expenses saved.");
       return true;
-    } catch (e) {
-      alert("Error saving all expense rows: " + e.message);
+    } catch (error) {
+      alert("Expenses were not saved: " + error.message);
       return false;
-    } finally {
-      setSavingExpenseRowId("");
-    }
+    } finally { setSavingExpenseRowId(""); }
   };
 
+  const saveMonthlyExpenseRow = (index, notify = true) => persistExpenseRows([index], null, notify);
+  const saveAllMonthlyExpenseRows = (notify = true) => persistExpenseRows(monthlyExpenseRows.map((_, index) => index), null, notify);
   const handleDeleteMonthlyExpenseRow = async (index) => {
-    const row = normalizeMonthlyExpenseRow(monthlyExpenseRows[index], selectedMonth);
-    if (!canManageMonthlyExpenses) return;
-
-    if (!row.id) {
+    if (!monthlyContextReady || !canManageMonthlyExpenses) return;
+    const row = monthlyExpenseRows[index];
+    if (!row.id && !legacyExpenseBaseline.current.some(saved => saved.localId === row.localId)) {
       removeMonthlyExpenseRow(index);
       return;
     }
-
-    if (!window.confirm("Delete this saved expense row?")) return;
-    setSavingExpenseRowId(row.id);
-    try {
-      await deleteDoc(doc(db, "monthly_expense_records", row.id));
-      removeMonthlyExpenseRow(index);
-    } catch (e) {
-      alert("Error deleting expense row: " + e.message);
-    } finally {
-      setSavingExpenseRowId("");
-    }
+    if (window.confirm("Delete this saved expense row?")) await persistExpenseRows([], index);
   };
 
   const saveMonthlyFinancialEntry = async (notify = true) => {
-    const savedRows = await saveAllMonthlyExpenseRows(false);
-    if (!savedRows) return false;
     const saved = await saveMonthlyLetter(false);
     if (!saved) return false;
     if (!countryKey) {
@@ -1757,11 +1809,11 @@ export default function MonthlyAnalytics({
         monthLabel,
         country: countryLabel,
         countryKey,
-        balanceBroughtForward: Number(summary.balanceBroughtForward || 0),
-        totalIncome: Number(summary.totalIncome || 0),
-        totalExpense: Number(summary.totalExpense || 0),
-        netMovement: Number(summary.netMovement || 0),
-        closingBalance: Number(summary.closingBalance || 0),
+        balanceBroughtForward: parseCurrencyAmount(summary.balanceBroughtForward),
+        totalIncome: parseCurrencyAmount(summary.totalIncome),
+        totalExpense: parseCurrencyAmount(summary.totalExpense),
+        netMovement: parseCurrencyAmount(summary.netMovement),
+        closingBalance: parseCurrencyAmount(summary.closingBalance),
         incomeRegisterEntries: summary.incomeRegisterEntries || [],
         monthlyExpenseEntries: summary.monthlyExpenseEntries || [],
         serviceCount: Number(summary.serviceCount || 0),
@@ -1787,7 +1839,12 @@ export default function MonthlyAnalytics({
     const saved = await saveMonthlyLetter(false);
     if (!saved) return;
     const subject = `Monthly Report - ${monthLabel} (${countryLabel})`;
-    const body = buildMonthlyEmailBody(monthLabel, countryLabel, summary, customText);
+    const body = buildMonthlyEmailBody(
+      monthLabel,
+      countryLabel,
+      summary,
+      replaceMonthlyFinancesSection(customText, monthLabel, summary)
+    );
     openMailTo(subject, body);
   };
 
@@ -1810,7 +1867,7 @@ export default function MonthlyAnalytics({
     } else {
       summary.incomeRegisterEntries.forEach((row) => {
         lines.push(
-          `- ${row.date || "-"} | ${row.branch || "-"} | ${row.service || "-"} | ${row.source || "Income"} | XCD ${(parseFloat(row.amount || 0) || 0).toFixed(2)}`
+          `- ${row.date || "-"} | ${row.branch || "-"} | ${row.service || "-"} | ${row.source || "Income"} | XCD ${parseCurrencyAmount(row.amount).toFixed(2)}`
         );
       });
     }
@@ -1824,7 +1881,7 @@ export default function MonthlyAnalytics({
       summary.monthlyExpenseEntries.forEach((row) => {
         lines.push(
           `- ${row.date || "-"} | ${getMonthlyExpensePurposeLabel(row)} | XCD ${(
-            parseFloat(row.amount || 0) || 0
+            parseCurrencyAmount(row.amount)
           ).toFixed(2)}`
         );
       });
@@ -1890,7 +1947,7 @@ export default function MonthlyAnalytics({
     }
     const incomeRows = (summary.incomeRegisterEntries || [])
       .map((row) => {
-        const amount = (parseFloat(row.amount || 0) || 0).toFixed(2);
+        const amount = parseCurrencyAmount(row.amount).toFixed(2);
         return `<tr><td>${row.date || "-"}</td><td>${row.branch || "-"}</td><td>${row.service || "-"}</td><td>${row.source || "Income"}</td><td style="text-align:right">${amount}</td></tr>`;
       })
       .join("");
@@ -1899,7 +1956,7 @@ export default function MonthlyAnalytics({
         const purpose = getMonthlyExpensePurposeLabel(row);
         const details =
           row.purpose === "Other" ? "-" : row.otherDetails || "-";
-        const amount = (parseFloat(row.amount || 0) || 0).toFixed(2);
+        const amount = parseCurrencyAmount(row.amount).toFixed(2);
         return `<tr><td>${row.date || "-"}</td><td>${purpose}</td><td>${details}</td><td style="text-align:right">${amount}</td></tr>`;
       })
       .join("");
@@ -1916,11 +1973,11 @@ export default function MonthlyAnalytics({
       })
       .join("");
 
-    const totalIncome = Number(summary.totalIncome || 0);
-    const totalExpense = Number(summary.totalExpense || 0);
-    const netMovement = Number(summary.netMovement || 0);
-    const closingBalance = Number(summary.closingBalance || 0);
-    const openingBalance = Number(summary.balanceBroughtForward || 0);
+    const totalIncome = parseCurrencyAmount(summary.totalIncome);
+    const totalExpense = parseCurrencyAmount(summary.totalExpense);
+    const netMovement = parseCurrencyAmount(summary.netMovement);
+    const closingBalance = parseCurrencyAmount(summary.closingBalance);
+    const openingBalance = parseCurrencyAmount(summary.balanceBroughtForward);
     const html = `
       <!doctype html>
       <html>
@@ -2049,8 +2106,6 @@ export default function MonthlyAnalytics({
 
   const includeAttendanceInPrint = printChartMode !== "none";
   const includeIncomeInPrint = printChartMode === "both";
-  const isFinancialEntryOnly = initialSection === "financial-entry";
-
   const ChartsSection = () => (
     <>
       <Card className="p-4">
@@ -2220,9 +2275,14 @@ export default function MonthlyAnalytics({
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 min-w-0 max-w-full overflow-x-hidden">
+      {monthlyContextError && <div role="alert" className="no-print rounded border border-red-300 bg-red-50 p-4 text-red-800">
+        {monthlyContextError} <button type="button" className="underline font-semibold" onClick={() => setContextReload(value => value + 1)}>Retry loading saved entries</button>
+      </div>}
+      {!monthlyContextReady && !monthlyContextError && <p role="status">Loading saved monthly entries…</p>}
+      <fieldset className="min-w-0 space-y-6" disabled={!monthlyContextReady || savingSummary || savingFinancialEntry || Boolean(savingExpenseRowId) || generatingAiReport}>
       {/* Control bar */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 no-print">
+      <div className="flex min-w-0 flex-col md:flex-row justify-between items-start md:items-center gap-4 no-print">
         <div className="flex items-center gap-2">
           <BarChart2 className="text-blue-700" />
           <div>
@@ -2307,6 +2367,17 @@ export default function MonthlyAnalytics({
               >
                 {showCharts ? "Hide charts" : "Show charts"}
               </button>
+              <button
+                type="button"
+                onClick={() => setIncludeDetailedServices((value) => !value)}
+                className={`px-2 py-1 text-xs rounded border ${
+                  includeDetailedServices
+                    ? "bg-blue-900 text-white border-blue-900"
+                    : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                }`}
+              >
+                {includeDetailedServices ? "Detailed services included" : "Detailed services removed"}
+              </button>
             </>
           )}
         </div>
@@ -2321,7 +2392,7 @@ export default function MonthlyAnalytics({
               Service income is auto-updated whenever this page opens. Enter expenses in the table below and save one row at a time or the whole register together.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 min-w-0">
             <Button
               variant="secondary"
               onClick={() => saveAllMonthlyExpenseRows(true)}
@@ -2390,7 +2461,9 @@ export default function MonthlyAnalytics({
                 const rowKey = row.id || row.localId || String(idx);
                 const isRowSaving =
                   savingExpenseRowId === rowKey || savingExpenseRowId === "__all__";
-                const statusLabel = row.id
+                const baselineRow = expenseBaseline.current.get(row.id);
+                const isUnchanged = baselineRow && ["date", "purpose", "otherDetails"].every(key => (row[key] || "") === (baselineRow[key] || "")) && parseCurrencyAmount(row.amount) === parseCurrencyAmount(baselineRow.amount);
+                const statusLabel = row.id && isUnchanged
                   ? `Saved${row.updatedAt ? ` ${new Date(row.updatedAt).toLocaleString()}` : ""}`
                   : isMonthlyExpenseRowMeaningful(row)
                     ? "Unsaved changes"
@@ -2486,7 +2559,7 @@ export default function MonthlyAnalytics({
         )}
         {!canManageMonthlyExpenses && (
           <p className="mt-2 text-xs text-slate-500">
-            Only Admin, Vetting Committee Chairman, or Finance Reporter can edit the monthly expense register.
+            Only Admin or Vetting Committee Chairman can edit the monthly expense register. Finance Reporters have read-only access.
           </p>
         )}
       </Card>
@@ -2773,6 +2846,9 @@ export default function MonthlyAnalytics({
                 generatingAiReport ||
                 loadingAiReport ||
                 loadingSummary ||
+                loadingMonthlyExpenseRows ||
+                savingExpenseRowId ||
+                savingSummary ||
                 !canGenerateOfficialMonthlyReport
               }
             >
@@ -2922,11 +2998,11 @@ export default function MonthlyAnalytics({
       </Card>
 
       {/* Letter editor */}
-      <Card className="p-8 print:p-4 bg-white print:shadow-none print:border-none monthly-letter-card">
+      <Card className="p-5 sm:p-6 print:p-4 bg-white print:shadow-none print:border-none monthly-letter-card">
   {/* On-screen controls (hidden when printing) */}
-  <div className="no-print flex justify-between items-center mb-4">
+  <div className="no-print flex flex-wrap justify-between items-center gap-3 mb-3">
     <h3 className="font-semibold text-slate-800">Written Monthly Letter</h3>
-    <div className="flex gap-2 print:hidden">
+    <div className="flex flex-wrap gap-2 print:hidden">
       <Button variant="secondary" onClick={handleRegenerate} className="text-xs px-3 py-1">
         Regenerate from data
       </Button>
@@ -2954,7 +3030,7 @@ export default function MonthlyAnalytics({
 
 <div className="printable-letter">
   <div className="letter-print-area">
-    <div className="mb-6 print:mb-3">
+    <div className="mb-3 print:mb-1">
   <img
     src="/letterhead.png"
     alt="DLBC Letterhead"
@@ -3019,6 +3095,7 @@ export default function MonthlyAnalytics({
 </Card>
 
 {/* Detailed table of all services in the month */}
+{includeDetailedServices && (
 <Card className="p-6 print:p-3 print:shadow-none print:border-none print-page-break monthly-table-card">
   <h3 className="font-semibold mb-4 text-slate-800">
     Detailed Services for {monthLabel}
@@ -3117,6 +3194,7 @@ export default function MonthlyAnalytics({
   )}
   
 </Card>
+)}
       </>
       )}
 
@@ -3195,7 +3273,7 @@ export default function MonthlyAnalytics({
               <td className="px-2 py-1">{row.service || "-"}</td>
               <td className="px-2 py-1">{row.source || "Income"}</td>
               <td className="px-2 py-1 text-right">
-                {(parseFloat(row.amount || 0) || 0).toFixed(2)}
+                {parseCurrencyAmount(row.amount).toFixed(2)}
               </td>
             </tr>
           ))
@@ -3230,7 +3308,7 @@ export default function MonthlyAnalytics({
               </td>
               <td className="px-2 py-1">{row.otherDetails || "-"}</td>
               <td className="px-2 py-1 text-right">
-                {(parseFloat(row.amount || 0) || 0).toFixed(2)}
+                {parseCurrencyAmount(row.amount).toFixed(2)}
               </td>
             </tr>
           ))
@@ -3254,6 +3332,7 @@ export default function MonthlyAnalytics({
         </div>
       )}
       </div>
+      </fieldset>
     </div>
   );
 }

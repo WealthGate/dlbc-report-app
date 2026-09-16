@@ -1,4 +1,6 @@
+import PrintStyles from "./components/PrintStyles";
 import React, { lazy, Suspense, useState, useEffect } from 'react';
+import appPackage from '../package.json';
 import {
   DollarSign,
   Home,
@@ -20,12 +22,10 @@ import {
   getFirestore,
   collection,
   onSnapshot,
-  deleteDoc,
   doc,
   query,
   updateDoc,
   where,
-  setDoc,
   writeBatch
 } from 'firebase/firestore';
 import {
@@ -41,6 +41,7 @@ import {
   formatRoleLabel,
   getBranchLabel,
   getServiceLabel,
+  isCombinedServiceRecord,
   normalizeCountryKey,
   parseReportDate
 } from './views/viewShared';
@@ -64,8 +65,7 @@ const firebaseConfig = {
   appId: "1:406500456836:web:e717c495ca992a1a2e3794"
 };
 
-const SUPER_ADMIN_EMAIL = "deeperlifedom@gmail.com";
-const APRIL_HEADQUARTERS_MIGRATION_MONTH = "2026-04";
+
 
 // --- INITIALIZE FIREBASE ---
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
@@ -86,143 +86,6 @@ const getMissingCountryKeyUpdate = (profile) => {
   return countryKey ? { countryKey } : null;
 };
 
-// const PrintStyles = () => (
-//   <style>{`
-//     @page { size: A4; margin: 15mm; }
-
-//     /* On-screen: keep current look */
-//     #printable-letter .letter-head-title {
-//       color: #0b3b66;
-//     }
-
-//     /* Print rules: hide everything except printable letter */
-//     @media print {
-//   body * {
-//     visibility: hidden !important;
-//   }
-
-//   #printable-letter,
-//   #printable-letter * {
-//     visibility: visible !important;
-//   }
-
-//   #printable-letter {
-//     position: absolute !important;
-//     left: 0;
-//     top: 0;
-//     width: 100%;
-//     padding: 0 !important;
-//     margin: 0 !important;
-//     background: white !important;
-//   }
-
-//   .no-print,
-//   button,
-//   textarea:not(.letter-body),
-//   nav,
-//   aside {
-//     display: none !important;
-//   }
-
-//   html, body {
-//     background: white !important;
-//     -webkit-print-color-adjust: exact !important;
-//     print-color-adjust: exact !important;
-//   }
-// }
-
-//   `}</style>
-// );
-
-
-function PrintStyles() {
-  return (
-    <style>
-      {`
-        @page {
-          margin: 12mm;
-        }
-
-        @media print {
-          html, body {
-            height: auto !important;
-            overflow: visible !important;
-            background: white !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-
-          body * {
-            visibility: hidden !important;
-          }
-
-          .printable-area {
-            position: static !important;
-            width: 100% !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            background: white !important;
-            overflow: visible !important;
-            max-height: none !important;
-            visibility: visible !important;
-          }
-
-          .printable-area * {
-            visibility: visible !important;
-          }
-
-          .monthly-letter-card {
-            padding: 10mm !important;
-          }
-
-          .monthly-table-card {
-            padding: 6mm !important;
-            overflow: visible !important;
-          }
-
-          .printable-area .overflow-auto,
-          .printable-area .overflow-x-auto,
-          .printable-area [class*="overflow-auto"],
-          .printable-area [class*="overflow-x-auto"] {
-            overflow: visible !important;
-            max-height: none !important;
-            width: 100% !important;
-          }
-
-          .printable-area table {
-            width: 100% !important;
-            min-width: 0 !important;
-            table-layout: fixed !important;
-            border-collapse: collapse !important;
-          }
-
-          .printable-area th,
-          .printable-area td {
-            white-space: normal !important;
-            overflow-wrap: anywhere !important;
-            word-break: break-word !important;
-            font-size: 8.5px !important;
-            line-height: 1.25 !important;
-            padding: 3px !important;
-          }
-
-          .no-print,
-          button,
-          textarea,
-          nav,
-          aside {
-            display: none !important;
-          }
-
-          .print-page-break {
-            break-before: page !important;
-            page-break-before: always !important;
-          }
-        }
-      `}
-    </style>
-  );
-}
 // --- MAIN APP COMPONENT ---
 
 export default function ChurchReportApp() {
@@ -234,10 +97,30 @@ export default function ChurchReportApp() {
   const [analyticsSection, setAnalyticsSection] = useState("report");
   const [analyticsJumpToken, setAnalyticsJumpToken] = useState(0);
   const [reports, setReports] = useState([]);
-  const [migratedAprilHeadquartersReports, setMigratedAprilHeadquartersReports] = useState(false);
+  const [reportsError, setReportsError] = useState("");
+  const [reportsLoading, setReportsLoading] = useState(true);
+  const [saveMessage, setSaveMessage] = useState("");
+  const [availableVersion, setAvailableVersion] = useState("");
+  const [combinedServiceNotices, setCombinedServiceNotices] = useState([]);
   const [editingReport, setEditingReport] = useState(null);
   const [currentReport, setCurrentReport] = useState(null);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  useEffect(() => {
+    let active = true;
+    const check = async () => {
+      if (document.visibilityState === "hidden" || !navigator.onLine) return;
+      try {
+        const response = await fetch("/version.json", { cache: "no-store" });
+        if (!response.ok) return;
+        const release = await response.json();
+        if (active && release.version && release.version !== appPackage.version) setAvailableVersion(release.version);
+      } catch { /* Offline or older deployment: keep the current app and drafts open. */ }
+    };
+    check();
+    const timer = window.setInterval(check, 5 * 60 * 1000);
+    document.addEventListener("visibilitychange", check);
+    return () => { active = false; clearInterval(timer); document.removeEventListener("visibilitychange", check); };
+  }, []);
   const [announcementDismissed, setAnnouncementDismissed] = useState(() => {
     try {
       return localStorage.getItem("app_announcement_dismissed") === APP_ANNOUNCEMENT.id;
@@ -266,9 +149,13 @@ export default function ChurchReportApp() {
   }, []);
 
   useEffect(() => {
+    let unsubProfile = () => {};
     const unsubscribe = onAuthStateChanged(
       auth,
       (currentUser) => {
+        unsubProfile();
+        setReports([]);
+        setUserProfile(null);
         setLoadingAuth(true);
         setAuthError(null);
 
@@ -281,27 +168,16 @@ export default function ChurchReportApp() {
 
         setUser(currentUser);
 
-        const unsubProfile = onSnapshot(
+        unsubProfile = onSnapshot(
           doc(db, "users", currentUser.uid),
-          async (docSnap) => {
+          (docSnap) => {
+            if (auth.currentUser?.uid !== currentUser.uid) return;
             if (docSnap.exists()) {
               setUserProfile(docSnap.data());
             } else {
-              if (currentUser.email === SUPER_ADMIN_EMAIL) {
-                const adminProfile = {
-                  displayName: "Super Admin",
-                  branch: "Goodwill",
-                  country: "Global",
-                  countryKey: "global",
-                  email: currentUser.email,
-                  role: "admin",
-                  createdAt: new Date().toISOString()
-                };
-                await setDoc(doc(db, "users", currentUser.uid), adminProfile);
-                setUserProfile(adminProfile);
-              } else {
-                setUserProfile(null);
-              }
+              // Administrator roles must be provisioned by a trusted administrator,
+              // never recreated from a hard-coded email address in the client.
+              setUserProfile(null);
             }
             setLoadingAuth(false);
           },
@@ -316,7 +192,6 @@ export default function ChurchReportApp() {
           }
         );
 
-        return () => unsubProfile();
       },
       (err) => {
         console.error(err);
@@ -324,7 +199,7 @@ export default function ChurchReportApp() {
         setLoadingAuth(false);
       }
     );
-    return () => unsubscribe();
+    return () => { unsubscribe(); unsubProfile(); };
   }, []);
 
   const isAdmin = userProfile?.role === "admin";
@@ -345,164 +220,83 @@ export default function ChurchReportApp() {
     });
   }, [user, userProfile]);
 
+
   useEffect(() => {
-    if (!user || migratedAprilHeadquartersReports) return;
-    if (!reports.length) return;
-    const targets = (reports || []).filter(
-      (report) =>
-        report?.id &&
-        report.branch === "Headquarters" &&
-        String(report.date || "").startsWith(`${APRIL_HEADQUARTERS_MIGRATION_MONTH}-`)
-    );
-    if (!targets.length) {
-      setMigratedAprilHeadquartersReports(true);
-      return;
-    }
-
-    const migrateReports = async () => {
-      try {
-        const batch = writeBatch(db);
-        for (const report of targets) {
-          const migratedReport = {
-            ...report,
-            branch: "Goodwill",
-            otherBranch: "",
-            lastModifiedBy: user.email,
-            lastModifiedAt: new Date().toISOString()
-          };
-          const reportKey = buildReportKey({
-            countryKey: report.countryKey || countryKey,
-            date: migratedReport.date,
-            serviceType: migratedReport.serviceType,
-            otherServiceType: migratedReport.otherServiceType,
-            branch: migratedReport.branch,
-            otherBranch: migratedReport.otherBranch
-          });
-          const { id, ...payload } = migratedReport;
-          const nextPayload = { ...payload, reportKey };
-
-          if (report.id === reportKey) {
-            batch.update(doc(db, "reports", report.id), nextPayload);
-          } else {
-            batch.set(doc(db, "reports", reportKey), nextPayload, { merge: true });
-            batch.delete(doc(db, "reports", report.id));
-          }
-        }
-        await batch.commit();
-      } catch (err) {
-        console.error("Unable to migrate April Headquarters reports to Goodwill:", err);
-      } finally {
-        setMigratedAprilHeadquartersReports(true);
+    // Clear the previous subscription's data before connecting a different account/country.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setReports([]);
+    setReportsError("");
+    setReportsLoading(true);
+    if (!user || !userProfile) return undefined;
+    let active = true;
+    const sources = new Map();
+    const errors = new Map();
+    const confirmedSources = new Set();
+    const requiredSourceCount = canViewCountryData && countryKey ? 2 : 1;
+    const publish = () => {
+      if (!active) return;
+      const merged = new Map();
+      for (const rows of sources.values()) {
+        for (const row of rows) merged.set(row.id, row);
       }
+      setReports(Array.from(merged.values()).sort((a, b) =>
+        (parseReportDate(b.date)?.getTime() || 0) - (parseReportDate(a.date)?.getTime() || 0)
+      ));
+      setReportsError(Array.from(errors.values()).join(" "));
+      setReportsLoading(confirmedSources.size < requiredSourceCount && errors.size === 0);
     };
-
-    migrateReports();
-  }, [user, reports, countryKey, migratedAprilHeadquartersReports]);
+    const subscribe = (name, constraints) => onSnapshot(
+      query(collection(db, "reports"), ...constraints),
+      { includeMetadataChanges: true },
+      (snapshot) => {
+        if (!snapshot.metadata.fromCache) confirmedSources.add(name);
+        sources.set(name, snapshot.docs.map((d) => ({ ...d.data(), id: d.id })));
+        errors.delete(name);
+        publish();
+      },
+      (error) => {
+        console.error(name + " reports sync failed:", error);
+        errors.set(name, "Unable to load " + name + " reports. Existing entries may be hidden; please check your connection and account permissions before entering them again.");
+        publish();
+      }
+    );
+    // Always keep the owner query, even for country readers. Legacy entries
+    // without countryKey must remain visible to the person who saved them.
+    const subscriptions = [subscribe("your", [where("createdBy", "==", user.email)])];
+    if (canViewCountryData && countryKey) {
+      subscriptions.push(subscribe("country", [where("countryKey", "==", countryKey)]));
+    }
+    return () => { active = false; subscriptions.forEach((unsubscribe) => unsubscribe()); };
+  }, [user, userProfile, canViewCountryData, countryKey]);
 
   useEffect(() => {
-    if (!user) return;
-
-    const sortReports = (list) =>
-      list.sort((a, b) => {
-        const ad = parseReportDate(a.date);
-        const bd = parseReportDate(b.date);
-        return (bd?.getTime() || 0) - (ad?.getTime() || 0);
-      });
-
-    if (canViewCountryData) {
-      if (!countryKey) return;
-      const qPrimary = query(
-        collection(db, "reports"),
-        where("countryKey", "==", countryKey)
-      );
-      const qLegacy = countryLabel
-        ? query(collection(db, "reports"), where("country", "==", countryLabel))
-        : null;
-      const qMissingCountryKey = query(
-        collection(db, "reports"),
-        where("countryKey", "==", null)
-      );
-
-      let primaryReports = [];
-      let legacyReports = [];
-      let missingKeyReports = [];
-      const applyMerged = () => {
-        const map = new Map();
-        primaryReports.forEach((r) => map.set(r.id, r));
-        legacyReports.forEach((r) => {
-          if (!map.has(r.id)) map.set(r.id, r);
-        });
-        missingKeyReports.forEach((r) => {
-          if (!map.has(r.id)) map.set(r.id, r);
-        });
-        const merged = sortReports(Array.from(map.values()));
-        setReports(merged);
-      };
-
-      const unsubPrimary = onSnapshot(
-        qPrimary,
-        (snapshot) => {
-          primaryReports = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-          applyMerged();
-        },
-        (err) => {
-          console.log("Reports sync error:", err);
-        }
-      );
-
-      let unsubLegacy = () => {};
-      if (qLegacy) {
-        unsubLegacy = onSnapshot(
-          qLegacy,
-          (snapshot) => {
-            legacyReports = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-            applyMerged();
-          },
-          (err) => {
-            console.log("Reports sync error (legacy):", err);
-          }
-        );
-      }
-
-      const unsubMissingKey = onSnapshot(
-        qMissingCountryKey,
-        (snapshot) => {
-          missingKeyReports = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-          applyMerged();
-        },
-        (err) => {
-          console.log("Reports sync error (missing countryKey):", err);
-        }
-      );
-
-      return () => {
-        unsubPrimary();
-        unsubLegacy();
-        unsubMissingKey();
-      };
+    if (!user || !countryKey) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setCombinedServiceNotices([]);
+      return undefined;
     }
-
-    const q = query(
-      collection(db, "reports"),
-      where("createdBy", "==", user.email)
+    const noticesQuery = query(
+      collection(db, "combined_service_notices"),
+      where("countryKey", "==", countryKey)
     );
-
-    const unsubscribe = onSnapshot(
-      q,
+    return onSnapshot(
+      noticesQuery,
       (snapshot) => {
-        const reportsData = sortReports(
-          snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
+        setCombinedServiceNotices(
+          snapshot.docs
+            .map((entry) => ({ id: entry.id, ...entry.data() }))
+            .sort((left, right) => String(right.date || "").localeCompare(String(left.date || "")))
         );
-        setReports(reportsData);
       },
-      (err) => {
-        console.log("Reports sync error:", err);
-      }
+      (error) => console.log("Combined service notices sync error:", error)
     );
-    return () => unsubscribe();
-  }, [user, canViewCountryData, countryKey, countryLabel]);
+  }, [user, countryKey]);
 
   const handleSaveReport = async (reportData) => {
+    if (reportsLoading || reportsError || isOffline) {
+      alert("Existing reports must finish loading before saving. Check your connection and any loading error; your form has not been cleared.");
+      return;
+    }
     try {
       const submittedBranch = String(reportData.branch || "").trim();
       const profileBranch =
@@ -539,10 +333,34 @@ export default function ChurchReportApp() {
       });
       const submittedBranchLabel = getBranchLabel(basePayload);
       const submittedServiceLabel = getServiceLabel(basePayload);
+      const batch = writeBatch(db);
 
+      const matchingReports = reports.filter((existingData) => {
+        if (existingData.id === reportData.id) return false;
+        return (
+          String(existingData.date || "") === String(basePayload.date || "") &&
+          getServiceLabel(existingData) === submittedServiceLabel
+        );
+      });
+      const matchingCombinedReport = matchingReports.find(isCombinedServiceRecord);
+      const matchingCombinedNotice = combinedServiceNotices.find(notice => notice.reportId !== reportData.id && notice.date === basePayload.date && notice.serviceLabel === submittedServiceLabel);
+      if (!reportData.isCombinedService && (matchingCombinedReport || matchingCombinedNotice)) {
+        alert(
+          `A combined service has already been entered for ${submittedServiceLabel} on ${basePayload.date}. Do not add a branch report for the same service.`
+        );
+        return;
+      }
+      if (reportData.isCombinedService && matchingReports.length > 0) {
+        alert(
+          `Branch reports already exist for ${submittedServiceLabel} on ${basePayload.date}. Remove or change those reports before entering one combined service, so attendance is not duplicated.`
+        );
+        return;
+      }
+
+      let savedReportId = reportData.id || "";
       if (reportData.id) {
-        const { id, ...rest } = basePayload;
-        await updateDoc(doc(db, "reports", reportData.id), {
+        const { id: _id, ...rest } = basePayload;
+        batch.update(doc(db, "reports", reportData.id), {
           ...rest,
           reportKey,
           lastModifiedBy: user.email,
@@ -567,7 +385,7 @@ export default function ChurchReportApp() {
         }
 
         const reportRef = doc(collection(db, "reports"));
-        await setDoc(reportRef, {
+        batch.set(reportRef, {
           ...basePayload,
           reportKey,
           reportDocumentId: reportRef.id,
@@ -576,7 +394,36 @@ export default function ChurchReportApp() {
           country: userProfile?.country || "",
           countryKey
         });
+        savedReportId = reportRef.id;
       }
+
+      const noticeRef = doc(db, "combined_service_notices", reportKey);
+      const previousReport = reportData.id
+        ? reports.find((entry) => entry.id === reportData.id)
+        : null;
+      if (reportData.isCombinedService) {
+        if (
+          isCombinedServiceRecord(previousReport) &&
+          previousReport.reportKey &&
+          previousReport.reportKey !== reportKey
+        ) {
+          batch.delete(doc(db, "combined_service_notices", previousReport.reportKey));
+        }
+        batch.set(noticeRef, {
+          reportId: savedReportId,
+          reportKey,
+          date: basePayload.date,
+          serviceLabel: submittedServiceLabel,
+          country: userProfile?.country || "",
+          countryKey,
+          createdBy: previousReport?.createdBy || user.email,
+          updatedAt: new Date().toISOString()
+        });
+      } else if (isCombinedServiceRecord(previousReport)) {
+        batch.delete(doc(db, "combined_service_notices", previousReport.reportKey || reportKey));
+      }
+      await batch.commit();
+      setSaveMessage(`Saved ${submittedServiceLabel} for ${basePayload.date} — ${submittedBranchLabel}.`);
       setEditingReport(null);
       setView("dashboard");
     } catch (e) {
@@ -593,7 +440,13 @@ export default function ChurchReportApp() {
   const deleteReport = async (id) => {
     if (window.confirm("Delete this report?")) {
       try {
-        await deleteDoc(doc(db, "reports", id));
+        const report = reports.find((entry) => entry.id === id);
+        const batch = writeBatch(db);
+        batch.delete(doc(db, "reports", id));
+        if (isCombinedServiceRecord(report)) {
+          batch.delete(doc(db, "combined_service_notices", report.reportKey));
+        }
+        await batch.commit();
         setView("dashboard");
       } catch (e) {
         alert("Error: " + e.message);
@@ -648,7 +501,7 @@ export default function ChurchReportApp() {
     );
   }
 
-  if (!userProfile && user.email !== SUPER_ADMIN_EMAIL) {
+  if (!userProfile) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center max-w-md p-6 bg-white rounded shadow">
@@ -689,7 +542,7 @@ export default function ChurchReportApp() {
                 Deeper Life Bible Church
               </h1>
               <p className="text-xs text-blue-100">
-                National Reporting System - {userProfile?.country || "Country"}
+                National Reporting System - {userProfile?.country || "Country"} · v{appPackage.version}
               </p>
             </div>
           </div>
@@ -723,7 +576,7 @@ export default function ChurchReportApp() {
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-[220px,1fr] gap-6">
+      <div className="w-full max-w-7xl mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-[220px,minmax(0,1fr)] gap-6 overflow-x-hidden">
         {/* Sidebar */}
         <aside className="print:hidden">
           <Card className="p-3 mb-4">
@@ -828,7 +681,12 @@ export default function ChurchReportApp() {
         </aside>
 
         {/* Main content */}
-        <main className="max-w-full">
+        <main className="min-w-0 max-w-full overflow-x-hidden">
+          {availableVersion && <div role="status" className="no-print mb-4 rounded border border-blue-300 bg-blue-50 p-3 text-blue-900">
+            Update {availableVersion} is available. Save your work first. <button className="underline font-semibold" onClick={() => { if (window.confirm("Have you saved your entries? Reload to install the app update?")) window.location.reload(); }}>Update now</button>
+          </div>}
+          {reportsError && <div role="alert" className="no-print mb-4 rounded border border-red-300 bg-red-50 p-3 text-red-900">{reportsError}</div>}
+          {saveMessage && <div role="status" className="no-print mb-4 rounded border border-green-300 bg-green-50 p-3 text-green-900">{saveMessage}</div>}
           {!announcementDismissed && (
             <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-slate-800">
               <div className="flex items-start justify-between gap-3">
@@ -845,7 +703,9 @@ export default function ChurchReportApp() {
                         "app_announcement_dismissed",
                         APP_ANNOUNCEMENT.id
                       );
-                    } catch {}
+                    } catch {
+                      // Ignore localStorage failures; dismissal still applies for this session.
+                    }
                     setAnnouncementDismissed(true);
                   }}
                 >
@@ -865,6 +725,7 @@ export default function ChurchReportApp() {
           {view === "dashboard" && (
             <Dashboard
               reports={reports}
+              combinedServiceNotices={combinedServiceNotices}
               isAdmin={canViewCountryData}
               canAccessMonthlyFinancialEntry={canManageExpenses}
               onOpenMonthlyFinancialEntry={() => {
@@ -920,15 +781,14 @@ export default function ChurchReportApp() {
               auth={auth}
             />
           )}
-          </Suspense>
-
           {view === "users" && isAdmin && (
-            <UserManagement userProfile={userProfile} db={db} />
+            <UserManagement userProfile={userProfile} db={db} app={app} currentUserId={user.uid} />
           )}
 
           {view === "profile" && (
             <UserProfile userProfile={userProfile} db={db} auth={auth} />
           )}
+          </Suspense>
         </main>
       </div>
     </div>

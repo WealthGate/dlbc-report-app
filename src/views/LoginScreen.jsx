@@ -53,21 +53,22 @@ export default function LoginScreen({ auth, db }) {
     setNotice("");
 
     try {
+      const normalizedEmail = email.trim().toLowerCase();
       if (isRegistering) {
         // Create auth user
-        const cred = await createUserWithEmailAndPassword(auth, email, password);
+        const cred = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
         // Create basic profile doc (role = 'user' by default)
         await setDoc(doc(db, "users", cred.user.uid), {
           displayName,
           branch,
           country,
           countryKey: normalizeCountryKey(country),
-          email,
+          email: normalizedEmail,
           role: "user",
           createdAt: new Date().toISOString()
         });
       } else {
-        await signInWithEmailAndPassword(auth, email, password);
+        await signInWithEmailAndPassword(auth, normalizedEmail, password);
       }
     } catch (e) {
       console.error(e);

@@ -1,5 +1,12 @@
+/* eslint-disable react-refresh/only-export-components -- This shared legacy module exports both UI primitives and reporting helpers. */
 import React from "react";
 import { getIncomeRowAmountXcd } from "../reporting/serviceRecords";
+
+export const COMBINED_SERVICE_BRANCH = "Combined service";
+export const COMBINED_SERVICE_LABEL = "All locations (combined)";
+
+export const isCombinedServiceRecord = (report = {}) =>
+  Boolean(report?.isCombinedService || report?.branch === COMBINED_SERVICE_BRANCH);
 
 export const EXPENSE_LOCATION_NON_BRANCH = "Not branch-specific";
 export const EXPENSE_LOCATION_OTHER = "Other location";
@@ -60,6 +67,17 @@ export const canEditMonthlyExpenses = (profile) =>
 export const createMonthlyExpenseRowId = () =>
   `row_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
+export const parseCurrencyAmount = (value) => {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const cleaned = String(value ?? "")
+    .trim()
+    .replace(/,/g, "")
+    .replace(/[^\d.-]/g, "");
+  if (!cleaned || cleaned === "-" || cleaned === "." || cleaned === "-.") return 0;
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
 export const defaultMonthlyExpenseRow = (date = "", overrides = {}) => ({
   localId: overrides.localId || overrides.id || createMonthlyExpenseRowId(),
   id: overrides.id || "",
@@ -84,8 +102,7 @@ export const normalizeMonthlyExpenseRow = (row = {}, month = "") =>
 
 export const isMonthlyExpenseRowMeaningful = (row = {}) =>
   Boolean(
-    String(row.date || "").trim() ||
-      String(row.purpose || "").trim() ||
+    String(row.purpose || "").trim() ||
       String(row.otherDetails || "").trim() ||
       String(row.amount || "").trim()
   );
@@ -139,6 +156,7 @@ export const getServiceLabel = (report) => {
 };
 
 export const getBranchLabel = (report = {}) => {
+  if (isCombinedServiceRecord(report)) return COMBINED_SERVICE_LABEL;
   if (report.branch === "Other") return report.otherBranch?.trim() || "Other";
   if (report.branch === "Headquarters") return "Goodwill";
   return report.branch || "Unknown";
@@ -330,7 +348,7 @@ export const buildMonthlyEmailBody = (monthLabel, countryLabel, summary, customT
 };
 
 export const Card = React.forwardRef(({ children, className = "" }, ref) => (
-  <div ref={ref} className={`bg-white rounded-lg shadow-sm border border-slate-200 ${className}`}>
+  <div ref={ref} className={`min-w-0 max-w-full bg-white rounded-lg shadow-sm border border-slate-200 ${className}`}>
     {children}
   </div>
 ));

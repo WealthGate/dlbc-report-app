@@ -20,9 +20,9 @@ service cloud.firestore {
 
     function isVettingCommitteeChairman() {
       return isSignedIn() && (
-        userDoc().data.role == "vetting_committee_chairman" ||
-        userDoc().data.role == "vetting_committee_chair" ||
-        userDoc().data.role == "committee_chairman"
+        userDoc().data.role.lower().replace('[ -]+', '_') == "vetting_committee_chairman" ||
+        userDoc().data.role.lower().replace('[ -]+', '_') == "vetting_committee_chair" ||
+        userDoc().data.role.lower().replace('[ -]+', '_') == "committee_chairman"
       );
     }
 
@@ -43,6 +43,13 @@ service cloud.firestore {
       return isAdmin() || isVettingCommitteeChairman();
     }
 
+    // The document id is known even before a monthly document exists.
+    function isOwnMonthlyDocument(docId) {
+      return isSignedIn() && docId.split('__').size() == 2
+        && docId.split('__')[0] == userCountryKey()
+        && docId.split('__')[1].matches('[0-9]{4}-[0-9]{2}');
+    }
+
     function expensesOf(data) {
       return data.financials is map && data.financials.expenses is list
         ? data.financials.expenses
@@ -60,8 +67,24 @@ service cloud.firestore {
     /* USERS */
     match /users/{userId} {
       allow read: if isAdmin() && resource.data.countryKey == userCountryKey();
-      allow write: if isAdmin() && request.resource.data.countryKey == userCountryKey();
-      allow read, write: if isSignedIn() && request.auth.uid == userId;
+      allow create: if isAdmin() && request.resource.data.countryKey == userCountryKey()
+        && !request.resource.data.keys().hasAny(['password', 'passwordHash']);
+      allow update: if isAdmin()
+        && resource.data.countryKey == userCountryKey()
+        && request.resource.data.countryKey == resource.data.countryKey
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'branch', 'role', 'phone', 'updatedAt', 'updatedBy'])
+        && request.resource.data.role in ['user', 'finance_reporter', 'admin', 'vetting_committee_chairman']
+        && (userId != request.auth.uid || request.resource.data.role == 'admin');
+      allow delete: if isAdmin() && resource.data.countryKey == userCountryKey() && userId != request.auth.uid;
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      allow create: if isSignedIn() && request.auth.uid == userId
+        && request.resource.data.role == 'user'
+        && request.resource.data.email == request.auth.token.email
+        && !request.resource.data.keys().hasAny(['password', 'passwordHash']);
+      allow update: if isSignedIn() && request.auth.uid == userId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'branch', 'phone', 'country', 'countryKey', 'updatedAt'])
+        && (resource.data.get('countryKey', '') == '' || request.resource.data.countryKey == resource.data.countryKey);
     }
 
     /* REPORTS */
@@ -86,6 +109,19 @@ service cloud.firestore {
         && resource.data.countryKey == userCountryKey();
     }
 
+    /* COUNTRY-WIDE COMBINED SERVICE NOTICES */
+    match /combined_service_notices/{noticeId} {
+      allow read: if isSignedIn() && resource.data.countryKey == userCountryKey();
+      allow create: if isSignedIn()
+        && request.resource.data.countryKey == userCountryKey()
+        && request.resource.data.createdBy == request.auth.token.email;
+      allow update, delete: if isAdmin()
+        && resource.data.countryKey == userCountryKey();
+      allow update, delete: if isSignedIn()
+        && resource.data.createdBy == request.auth.token.email
+        && resource.data.countryKey == userCountryKey();
+    }
+
     /* PENDING USERS */
     match /pending_users/{docId} {
       allow read: if isAdmin() && resource.data.countryKey == userCountryKey();
@@ -94,31 +130,32 @@ service cloud.firestore {
 
     /* MONTHLY SUMMARIES */
     match /monthly_summaries/{docId} {
-      allow read: if canManageExpenses() && resource.data.countryKey == userCountryKey();
-      allow write: if canManageExpenses() && request.resource.data.countryKey == userCountryKey();
+      allow read: if canReadCountryReports() && isOwnMonthlyDocument(docId);
+      allow write: if canManageExpenses() && isOwnMonthlyDocument(docId) && request.resource.data.countryKey == userCountryKey();
     }
 
     /* MONTHLY FINANCIAL ENTRIES */
     match /monthly_financial_entries/{docId} {
-      allow read: if canManageExpenses() && resource.data.countryKey == userCountryKey();
+      allow read: if canReadCountryReports() && isOwnMonthlyDocument(docId);
       allow write: if canManageExpenses() && request.resource.data.countryKey == userCountryKey();
     }
 
     /* MONTHLY EXPENSE RECORDS */
     match /monthly_expense_records/{docId} {
-      allow read: if canManageExpenses() && resource.data.countryKey == userCountryKey();
+      allow read: if canReadCountryReports() && resource.data.countryKey == userCountryKey();
       allow write: if canManageExpenses() && request.resource.data.countryKey == userCountryKey();
       allow delete: if canManageExpenses() && resource.data.countryKey == userCountryKey();
     }
 
     /* MONTHLY AI REPORTS */
     match /monthly_ai_reports/{docId} {
-      allow read: if canReadCountryReports() && resource.data.countryKey == userCountryKey();
+      allow read: if canReadCountryReports() && isOwnMonthlyDocument(docId);
     }
 
     /* EVERYTHING ELSE */
-    match /{document=**} {
-      allow read, write: if isAdmin();
+    match /{collectionName}/{document=**} {
+      // User-account restrictions above must not be bypassed by the admin fallback.
+      allow read, write: if collectionName != 'users' && isAdmin();
     }
   }
 }

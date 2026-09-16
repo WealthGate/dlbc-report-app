@@ -77,3 +77,51 @@ Deploy the frontend, Firestore rules, and Cloud Functions with Firebase:
 ```bash
 firebase deploy
 ```
+
+## Android app
+
+The Android app uses Capacitor to package the same React build used by Firebase Hosting.
+It loads `https://dlbcdom.web.app` so deployments to Firebase Hosting are visible in
+the installed Android app after it is closed and reopened. A new APK is only required
+when native Android configuration, permissions, plugins, icons, or the app version changes.
+
+1. Install the frontend dependencies, including Capacitor:
+
+```bash
+npm install
+```
+
+2. Generate the Android Studio project (first time only):
+
+```bash
+npx cap add android
+```
+
+3. Build and copy the current web app into Android:
+
+```bash
+npm run android:sync
+```
+
+4. Open the project in Android Studio to run it on a device or create a signed release:
+
+```bash
+npm run android:open
+```
+
+Use `npm run android:run` to build, sync, and launch directly on a connected Android device or emulator.
+
+To create an installable debug APK without opening Android Studio, run:
+
+```bash
+npm run android:apk
+```
+
+The helper detects Java 21 and, on Windows, offers Windows Package Manager the
+Microsoft OpenJDK 21 package when it is missing. The APK is copied to
+`artifacts/DLBC-Reporting-debug.apk`. To build and install it
+on an Android phone connected with USB debugging enabled, run:
+
+```bash
+npm run android:install
+```

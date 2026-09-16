@@ -49,6 +49,8 @@ export const requestMonthlyAiReportGeneration = async (firebaseApp, { month }) =
 export const formatMonthlyAiError = (error) => {
   const code = String(error?.code || "");
   switch (code) {
+    case "functions/not-found":
+      return "The AI reporting service has not been deployed. The project owner must enable Firebase Blaze billing and deploy the reporting functions. Your saved reports and finances are unaffected.";
     case "functions/unauthenticated":
       return "You must be signed in to generate a monthly report.";
     case "functions/permission-denied":

@@ -9,6 +9,14 @@ export const DEFAULT_BRANCHES = [
   "Other"
 ];
 
+// This is a reporting classification, not a physical branch. A combined
+// service is entered once and represents every location meeting together.
+export const COMBINED_SERVICE_BRANCH = "Combined service";
+export const COMBINED_SERVICE_LABEL = "All locations (combined)";
+
+export const isCombinedServiceRecord = (record = {}) =>
+  Boolean(record?.isCombinedService || record?.branch === COMBINED_SERVICE_BRANCH);
+
 export const STANDARD_SERVICE_TYPES = [
   "Sunday Worship Service",
   "Tuesday Bible Study",
@@ -80,7 +88,9 @@ const DAY_NAMES = [
 ];
 
 export const parseNumber = (value) => {
-  const parsed = Number(value);
+  const parsed = Number(
+    typeof value === "string" ? value.replace(/,/g, "").replace(/[^\d.-]/g, "") : value
+  );
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
@@ -99,6 +109,7 @@ export const getDayOfWeek = (dateValue = "") => {
 };
 
 export const getBranchName = (record = {}) => {
+  if (isCombinedServiceRecord(record)) return COMBINED_SERVICE_LABEL;
   if (record.branch === "Other" && record.otherBranch) return record.otherBranch;
   if (record.branch === "Headquarters") return "Goodwill";
   return record.branch || "Unknown";

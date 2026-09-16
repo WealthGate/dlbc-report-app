@@ -2,6 +2,48 @@
 @tailwind components;
 @tailwind utilities;
 
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  min-height: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+body {
+  min-height: 100dvh;
+  overscroll-behavior-y: auto;
+  touch-action: auto;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#root {
+  width: 100%;
+  min-height: 100dvh;
+  max-width: 100vw;
+  overflow: visible;
+}
+
+button,
+select,
+input,
+textarea {
+  touch-action: manipulation;
+}
+
+img,
+svg,
+canvas,
+video {
+  max-width: 100%;
+}
+
 @media print {
   @page { margin: 0; }
   body { -webkit-print-color-adjust: exact; }

@@ -229,13 +229,20 @@ export const generateMonthlyAiReport = onCall(
       ]);
 
       const summaryData = summarySnap.exists ? summarySnap.data() || {} : {};
+      const effectiveMonthlyExpenses =
+        monthlyExpenses.length > 0
+          ? monthlyExpenses
+          : !summaryData.expenseRegisterInitialized && Array.isArray(summaryData.monthlyExpenses)
+            ? summaryData.monthlyExpenses
+            : [];
       const compiled = compileMonthlyReportData({
         reports,
         month,
         country: userContext.country,
         countryKey: userContext.countryKey,
-        monthlyExpenses,
-        balanceBroughtForward: Number(summaryData.balanceBroughtForward || 0),
+        monthlyExpenses: effectiveMonthlyExpenses,
+        balanceBroughtForward: summaryData.balanceBroughtForward || 0,
+        expenseRegisterInitialized: Boolean(summaryData.expenseRegisterInitialized),
         summaryDocId: summarySnap.exists ? summarySnap.id : ""
       });
 

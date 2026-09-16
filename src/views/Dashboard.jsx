@@ -18,6 +18,7 @@ import {
 
 export default function Dashboard({
   reports = [],
+  combinedServiceNotices = [],
   onView,
   onEdit,
   onCreate,
@@ -30,7 +31,7 @@ export default function Dashboard({
   const [branchFilter, setBranchFilter] = useState("");
   const [serviceTypeFilter, setServiceTypeFilter] = useState("");
   const [specialOnlyFilter, setSpecialOnlyFilter] = useState(false);
-  const [dateFilterMode, setDateFilterMode] = useState("month");
+  const [dateFilterMode, setDateFilterMode] = useState("all");
   const [singleDateFilter, setSingleDateFilter] = useState("");
   const [monthFilter, setMonthFilter] = useState(currentMonthKey);
   const [rangeStartDate, setRangeStartDate] = useState("");
@@ -55,6 +56,9 @@ export default function Dashboard({
 
   const getBranchName = (r) => {
     if (!r) return "";
+    if (r.isCombinedService || r.branch === "Combined service") {
+      return "All locations (combined)";
+    }
     if (r.branch === "Other" && r.otherBranch) return r.otherBranch;
     if (r.branch === "Headquarters") return "Goodwill";
     return r.branch || "";
@@ -256,6 +260,22 @@ export default function Dashboard({
         </div>
       </div>
 
+      {combinedServiceNotices.length > 0 && (
+        <Card className="border-blue-300 bg-blue-50 p-4">
+          <p className="text-sm font-semibold text-blue-950">Combined services announced</p>
+          <p className="mt-1 text-xs text-blue-900">
+            These services represent all locations meeting together and must not be entered again by an individual branch.
+          </p>
+          <ul className="mt-2 space-y-1 text-sm text-blue-950">
+            {combinedServiceNotices.slice(0, 5).map((notice) => (
+              <li key={notice.id}>
+                {formatDate(notice.date)} — {notice.serviceLabel || "Combined service"}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
       <Card className="p-4">
         <div className="flex flex-col lg:flex-row lg:items-end gap-3">
           <InputGroup label="Find by">
@@ -264,10 +284,10 @@ export default function Dashboard({
               value={dateFilterMode}
               onChange={(e) => setDateFilterMode(e.target.value)}
             >
+              <option value="all">All saved reports</option>
               <option value="month">Selected month</option>
               <option value="date">Single date</option>
               <option value="range">Date range</option>
-              <option value="all">All reports</option>
             </select>
           </InputGroup>
           {dateFilterMode === "date" && (

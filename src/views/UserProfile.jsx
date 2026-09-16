@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { collection, doc, getDocs, query, updateDoc, where, writeBatch } from "firebase/firestore";
 import { updatePassword } from "firebase/auth";
 import { User } from "lucide-react";
@@ -8,7 +8,6 @@ import {
   Card,
   formatRoleLabel,
   getBranchLabel,
-  getServiceLabel,
   InputGroup,
   normalizeCountryKey,
   parseReportDate
@@ -67,6 +66,10 @@ export default function UserProfile({ userProfile, db, auth }) {
 
   const handleCountryUpdate = async (e) => {
     e.preventDefault();
+    if (userProfile?.countryKey && normalizeCountryKey(country) !== userProfile.countryKey) {
+      alert("Your country controls access to saved reports and cannot be reassigned here. Contact the project administrator.");
+      return;
+    }
     if (!country.trim()) {
       alert("Please enter a country.");
       return;
@@ -334,9 +337,11 @@ export default function UserProfile({ userProfile, db, auth }) {
               className="w-full border p-2 rounded"
               value={country}
               onChange={(e) => setCountry(e.target.value)}
+              disabled={Boolean(userProfile?.countryKey)}
             />
           </InputGroup>
-          <Button type="submit" disabled={savingCountry}>
+          <p className="text-sm text-slate-500">Once assigned, country is protected because it controls access to saved reports. Location and contact details can be updated by your administrator.</p>
+          <Button type="submit" disabled={savingCountry || Boolean(userProfile?.countryKey)}>
             {savingCountry ? "Updating..." : "Update Country"}
           </Button>
         </form>

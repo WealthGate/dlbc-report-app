@@ -4,7 +4,9 @@ const MONTH_NAME_FORMATTER = new Intl.DateTimeFormat("en-US", {
 });
 
 const normalizeNumber = (value) => {
-  const parsed = Number(value);
+  const parsed = Number(
+    typeof value === "string" ? value.replace(/,/g, "").replace(/[^\d.-]/g, "") : value
+  );
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
@@ -55,6 +57,13 @@ export const parseReportDate = (value) => {
   }
 
   const normalized = normalizeText(value);
+  const yyyymmdd = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (yyyymmdd) {
+    const [, year, month, day] = yyyymmdd;
+    const parsed = new Date(Number(year), Number(month) - 1, Number(day));
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
   const direct = new Date(normalized);
   if (!Number.isNaN(direct.getTime())) {
     return direct;
@@ -86,10 +95,32 @@ export const getServiceLabel = (report = {}) => {
 };
 
 export const getBranchLabel = (report = {}) => {
+  if (report.isCombinedService || report.branch === "Combined service") {
+    return "All locations (combined)";
+  }
   if (report.branch === "Other") {
     return normalizeText(report.otherBranch) || "Other";
   }
   return normalizeText(report.branch) || "Unknown";
+};
+
+const DEFAULT_EXCHANGE_RATE_TO_XCD = {
+  USD: 2.67,
+  XCD: 1
+};
+
+const getIncomeAmountXcd = (row = {}) => {
+  const amount = normalizeNumber(row.amount);
+  const currency = normalizeText(row.currency).toUpperCase() || "XCD";
+  const fallbackRate = DEFAULT_EXCHANGE_RATE_TO_XCD[currency] || 1;
+  const providedRate = normalizeNumber(row.exchangeRateToXcd ?? row.exchangeRate);
+
+  // Match the client calculation: a selected currency or explicit rate takes
+  // precedence over a historical amountXcd field.
+  if (row.currency || row.exchangeRateToXcd != null || row.exchangeRate != null) {
+    return amount * (providedRate || fallbackRate);
+  }
+  return row.amountXcd != null ? normalizeNumber(row.amountXcd) : amount * fallbackRate;
 };
 
 const normalizeIncomeItem = (row = {}) => ({
@@ -98,7 +129,7 @@ const normalizeIncomeItem = (row = {}) => ({
     normalizeText(row.purpose) === "Other"
       ? normalizeText(row.otherPurpose || row.label) || "Other"
       : normalizeText(row.purpose || row.label) || "Income",
-  amount: normalizeNumber(row.amount)
+  amount: getIncomeAmountXcd(row)
 });
 
 const normalizeEmbeddedExpenseItem = (row = {}, defaultBranch = "") => {
@@ -224,6 +255,7 @@ export const compileMonthlyReportData = ({
   countryKey = "",
   monthlyExpenses = [],
   balanceBroughtForward = 0,
+  expenseRegisterInitialized = false,
   summaryDocId = ""
 }) => {
   const monthLabel = formatMonthLabel(month);
@@ -379,7 +411,7 @@ export const compileMonthlyReportData = ({
       }))
   );
 
-  const useMonthlyExpenseRegister = normalizedMonthlyExpenses.length > 0;
+  const useMonthlyExpenseRegister = expenseRegisterInitialized || normalizedMonthlyExpenses.length > 0;
   const expenseRegister = useMonthlyExpenseRegister
     ? normalizedMonthlyExpenses
     : fallbackExpenseRegister;

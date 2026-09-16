@@ -3,6 +3,7 @@ import { DollarSign, FileText, Users, X } from "lucide-react";
 import {
   COLLECTION_PURPOSES,
   COLLECTION_CURRENCIES,
+  COMBINED_SERVICE_BRANCH,
   DEFAULT_BRANCHES,
   getAttendanceTotals,
   getDefaultExchangeRateToXcd,
@@ -20,7 +21,7 @@ const DEFAULT_REPORT_BRANCH = BRANCH_OPTIONS.includes("Roseau")
   : BRANCH_OPTIONS[0] || "Other";
 
 const normalizeInitialBranch = (branch) => {
-  if (branch === "Headquarters") return DEFAULT_REPORT_BRANCH;
+  if (branch === "Headquarters") return "Goodwill";
   if (BRANCH_OPTIONS.includes(branch)) return branch;
   return DEFAULT_REPORT_BRANCH;
 };
@@ -65,6 +66,9 @@ export default function ReportForm({ initialData, userBranch, onSave, onCancel }
       ""
   });
   const [branch, setBranch] = useState(initialBranch);
+  const [isCombinedService, setIsCombinedService] = useState(
+    Boolean(initialData?.isCombinedService || initialData?.branch === COMBINED_SERVICE_BRANCH)
+  );
   const [otherBranch, setOtherBranch] = useState(initialData?.otherBranch || "");
   const [incomeRows, setIncomeRows] = useState(
     initialData?.financials?.income || [
@@ -133,7 +137,9 @@ export default function ReportForm({ initialData, userBranch, onSave, onCancel }
     setSaving(true);
     try {
       const formData = new FormData(e.currentTarget);
-      const selectedBranch = String(formData.get("branch") || branch || "").trim();
+      const selectedBranch = isCombinedService
+        ? COMBINED_SERVICE_BRANCH
+        : String(formData.get("branch") || branch || "").trim();
       const selectedOtherBranch = String(
         formData.get("otherBranch") || otherBranch || ""
       ).trim();
@@ -184,6 +190,7 @@ export default function ReportForm({ initialData, userBranch, onSave, onCancel }
         otherServiceType: serviceType === "Other" ? otherServiceType.trim() : "",
         branch: selectedBranch,
         otherBranch: selectedBranch === "Other" ? selectedOtherBranch : "",
+        isCombinedService,
         isSpecialProgramme,
         specialProgramme: {
           enabled: isSpecialProgramme,
@@ -234,13 +241,14 @@ export default function ReportForm({ initialData, userBranch, onSave, onCancel }
             </p>
           </div>
         </div>
-        <Button variant="secondary" onClick={onCancel}>
+        <Button variant="secondary" disabled={saving} onClick={onCancel}>
           Cancel
         </Button>
       </div>
 
       <Card className="p-6 space-y-6">
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit}>
+          <fieldset disabled={saving} className="space-y-6 min-w-0">
           <div className="grid md:grid-cols-3 gap-4">
             <InputGroup label="Service Date">
               <input
@@ -300,6 +308,7 @@ export default function ReportForm({ initialData, userBranch, onSave, onCancel }
                 className="w-full border rounded px-3 py-3 text-base"
                 value={branch}
                 onChange={(e) => setBranch(e.target.value)}
+                disabled={isCombinedService}
               >
                 {BRANCH_OPTIONS.map((branchName) => (
                   <option key={branchName} value={branchName}>
@@ -310,7 +319,25 @@ export default function ReportForm({ initialData, userBranch, onSave, onCancel }
             </InputGroup>
           </div>
 
-          {branch === "Other" && (
+          <Card className="p-4 bg-blue-50 border-blue-200">
+            <label className="inline-flex items-start gap-3 text-sm text-slate-800">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-5 w-5"
+                checked={isCombinedService}
+                onChange={(e) => setIsCombinedService(e.target.checked)}
+              />
+              <span>
+                <span className="font-semibold">Combined service for all locations</span>
+                <span className="block text-xs text-slate-600 mt-1">
+                  Enter this once only. It is not assigned to a branch, is included once in
+                  the monthly total, and is announced to all users in this country.
+                </span>
+              </span>
+            </label>
+          </Card>
+
+          {branch === "Other" && !isCombinedService && (
             <InputGroup label="Specify Other Branch">
               <input
                 name="otherBranch"
@@ -546,6 +573,7 @@ export default function ReportForm({ initialData, userBranch, onSave, onCancel }
               {saving ? "Saving..." : "Save Report"}
             </Button>
           </div>
+          </fieldset>
         </form>
       </Card>
     </div>
