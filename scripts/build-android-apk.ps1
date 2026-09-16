@@ -57,6 +57,20 @@ $env:Path = "$(Join-Path $javaHome 'bin');$env:Path"
 
 Push-Location $projectRoot
 try {
+  # Cloud-folder copies can mark generated directories read-only, preventing
+  # Capacitor from replacing its assets. Only touch these generated trees.
+  foreach ($relativeGeneratedPath in @("android\app\src\main\assets\public", "android\capacitor-cordova-android-plugins")) {
+    $generatedPath = Join-Path $projectRoot $relativeGeneratedPath
+    if (-not (Test-Path -LiteralPath $generatedPath)) { continue }
+    $resolvedGeneratedPath = (Resolve-Path -LiteralPath $generatedPath).Path
+    if (-not $resolvedGeneratedPath.StartsWith($projectRoot + "\", [StringComparison]::OrdinalIgnoreCase)) {
+      throw "Refusing to change attributes outside this project's generated Android folders."
+    }
+    $generatedItems = @(Get-Item -LiteralPath $resolvedGeneratedPath) + @(Get-ChildItem -LiteralPath $resolvedGeneratedPath -Recurse -Force)
+    foreach ($generatedItem in $generatedItems) {
+      $generatedItem.Attributes = $generatedItem.Attributes -band (-bnot [IO.FileAttributes]::ReadOnly)
+    }
+  }
   & npm.cmd run android:sync
   if ($LASTEXITCODE -ne 0) {
     throw "The Capacitor sync failed."
@@ -88,11 +102,8 @@ try {
   Write-Host "APK ready: $apkDestination" -ForegroundColor Green
 
   if ($Install) {
-    $adbCandidates = @(
-      (Join-Path $env:ANDROID_HOME "platform-tools\adb.exe"),
-      (Join-Path $env:ANDROID_SDK_ROOT "platform-tools\adb.exe"),
-      (Join-Path $env:LOCALAPPDATA "Android\Sdk\platform-tools\adb.exe")
-    )
+    $sdkCandidates = @($env:ANDROID_HOME, $env:ANDROID_SDK_ROOT, (Join-Path $env:LOCALAPPDATA "Android\Sdk"))
+    $adbCandidates = @($sdkCandidates | Where-Object { $_ } | ForEach-Object { Join-Path $_ "platform-tools\adb.exe" })
     $adb = $adbCandidates |
       Where-Object { $_ -and (Test-Path -LiteralPath $_) } |
       Select-Object -First 1
