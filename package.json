@@ -1,7 +1,7 @@
 {
   "name": "dlbc-report-app",
   "private": true,
-  "version": "2.3.0",
+  "version": "2.3.1",
   "main": "electron.cjs",
   "type": "module",
   "homepage": "./",
@@ -59,7 +59,8 @@
     "productName": "DLBC Reporting System",
     "files": [
       "dist/**/*",
-      "electron.cjs"
+      "electron.cjs",
+      "assets/icon.ico"
     ],
     "directories": {
       "buildResources": "assets"

@@ -1,3 +1,4 @@
+import { subscribeToReports } from "./services/reportSubscriptions";
 import PrintStyles from "./components/PrintStyles";
 import React, { lazy, Suspense, useState, useEffect } from 'react';
 import appPackage from '../package.json';
@@ -42,8 +43,7 @@ import {
   getBranchLabel,
   getServiceLabel,
   isCombinedServiceRecord,
-  normalizeCountryKey,
-  parseReportDate
+  normalizeCountryKey
 } from './views/viewShared';
 
 const Dashboard = lazy(() => import("./views/Dashboard"));
@@ -99,6 +99,7 @@ export default function ChurchReportApp() {
   const [reports, setReports] = useState([]);
   const [reportsError, setReportsError] = useState("");
   const [reportsLoading, setReportsLoading] = useState(true);
+  const [reportsReload, setReportsReload] = useState(0);
   const [saveMessage, setSaveMessage] = useState("");
   const [availableVersion, setAvailableVersion] = useState("");
   const [combinedServiceNotices, setCombinedServiceNotices] = useState([]);
@@ -228,46 +229,13 @@ export default function ChurchReportApp() {
     setReportsError("");
     setReportsLoading(true);
     if (!user || !userProfile) return undefined;
-    let active = true;
-    const sources = new Map();
-    const errors = new Map();
-    const confirmedSources = new Set();
-    const requiredSourceCount = canViewCountryData && countryKey ? 2 : 1;
-    const publish = () => {
-      if (!active) return;
-      const merged = new Map();
-      for (const rows of sources.values()) {
-        for (const row of rows) merged.set(row.id, row);
+    return subscribeToReports({ db, uid: user.uid, email: user.email, countryKey,
+      country: countryLabel, canReadCountry: canViewCountryData,
+      onChange: ({ reports: loaded, loading, error }) => {
+        setReports(loaded); setReportsLoading(loading); setReportsError(error);
       }
-      setReports(Array.from(merged.values()).sort((a, b) =>
-        (parseReportDate(b.date)?.getTime() || 0) - (parseReportDate(a.date)?.getTime() || 0)
-      ));
-      setReportsError(Array.from(errors.values()).join(" "));
-      setReportsLoading(confirmedSources.size < requiredSourceCount && errors.size === 0);
-    };
-    const subscribe = (name, constraints) => onSnapshot(
-      query(collection(db, "reports"), ...constraints),
-      { includeMetadataChanges: true },
-      (snapshot) => {
-        if (!snapshot.metadata.fromCache) confirmedSources.add(name);
-        sources.set(name, snapshot.docs.map((d) => ({ ...d.data(), id: d.id })));
-        errors.delete(name);
-        publish();
-      },
-      (error) => {
-        console.error(name + " reports sync failed:", error);
-        errors.set(name, "Unable to load " + name + " reports. Existing entries may be hidden; please check your connection and account permissions before entering them again.");
-        publish();
-      }
-    );
-    // Always keep the owner query, even for country readers. Legacy entries
-    // without countryKey must remain visible to the person who saved them.
-    const subscriptions = [subscribe("your", [where("createdBy", "==", user.email)])];
-    if (canViewCountryData && countryKey) {
-      subscriptions.push(subscribe("country", [where("countryKey", "==", countryKey)]));
-    }
-    return () => { active = false; subscriptions.forEach((unsubscribe) => unsubscribe()); };
-  }, [user, userProfile, canViewCountryData, countryKey]);
+    });
+  }, [user, userProfile, canViewCountryData, countryKey, countryLabel, reportsReload]);
 
   useEffect(() => {
     if (!user || !countryKey) {
@@ -384,13 +352,14 @@ export default function ChurchReportApp() {
           return;
         }
 
-        const reportRef = doc(collection(db, "reports"));
+        const reportRef = doc(collection(db, "reports"), reportData.submissionId || crypto.randomUUID());
         batch.set(reportRef, {
           ...basePayload,
           reportKey,
           reportDocumentId: reportRef.id,
           createdAt: new Date().toISOString(),
           createdBy: user.email,
+          createdByUid: user.uid,
           country: userProfile?.country || "",
           countryKey
         });
@@ -724,6 +693,9 @@ export default function ChurchReportApp() {
           >
           {view === "dashboard" && (
             <Dashboard
+              loading={reportsLoading}
+              error={reportsError}
+              onRetry={() => setReportsReload(value => value + 1)}
               reports={reports}
               combinedServiceNotices={combinedServiceNotices}
               isAdmin={canViewCountryData}

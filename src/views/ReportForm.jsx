@@ -27,6 +27,7 @@ const normalizeInitialBranch = (branch) => {
 };
 
 export default function ReportForm({ initialData, userBranch, onSave, onCancel }) {
+  const [submissionId] = useState(() => crypto.randomUUID());
   const initialBranch = normalizeInitialBranch(initialData?.branch || userBranch);
   const [date, setDate] = useState(
     initialData?.date || formatLocalDateKey(new Date())
@@ -183,6 +184,7 @@ export default function ReportForm({ initialData, userBranch, onSave, onCancel }
       const totalAttendance = attendancePreview.total;
 
       const payload = {
+        ...(!initialData?.id ? { submissionId } : {}),
         ...(initialData?.id ? { id: initialData.id } : {}),
         date,
         dayOfWeek,

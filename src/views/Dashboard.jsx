@@ -17,6 +17,9 @@ import {
 } from "./viewShared";
 
 export default function Dashboard({
+  loading = false,
+  error = "",
+  onRetry,
   reports = [],
   combinedServiceNotices = [],
   onView,
@@ -386,10 +389,15 @@ export default function Dashboard({
         </Card>
       </div>
 
+      <div className="flex flex-wrap items-center gap-3 text-sm" role="status">
+        <span>{loading ? "Checking saved reports…" : `${reports.length} saved reports loaded; ${filteredReports.length} match the filters.`}</span>
+        <Button variant="secondary" onClick={() => { setDateFilterMode("all"); setBranchFilter(""); setServiceTypeFilter(""); setSpecialOnlyFilter(false); }}>Show all saved reports</Button>
+        {onRetry && <Button variant="secondary" onClick={onRetry}>Refresh saved reports</Button>}
+      </div>
       {filteredReports.length === 0 ? (
         <Card className="p-8 text-center">
-          <p className="text-slate-600 mb-4">No reports found for the selected date filter.</p>
-          <Button onClick={onCreate} className="inline-flex items-center gap-2">
+          <p className="text-slate-600 mb-4">{loading ? "Your saved reports are still loading. Please wait before entering a report again." : error ? "Saved reports could not be fully loaded. Refresh before entering them again." : "No reports match the current filters. Choose Show all saved reports to check other dates and services."}</p>
+          <Button disabled={loading || Boolean(error)} onClick={onCreate} className="inline-flex items-center gap-2">
             <FilePlus size={16} />
             Create report
           </Button>

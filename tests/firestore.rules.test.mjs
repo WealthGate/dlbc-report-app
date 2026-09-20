@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { initializeTestEnvironment, assertSucceeds, assertFails } from '@firebase/rules-unit-testing';
 import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { saveStaffProfile } from '../src/services/userProfiles.js';
+import { subscribeToReports } from '../src/services/reportSubscriptions.js';
 import { persistMonthlyExpenses } from '../src/services/monthlyExpenseStore.js';
 
 let env;
@@ -21,6 +22,40 @@ const dbFor = id => env.authenticatedContext(id, { email: `${id}@test.test` }).f
 const summaryPath = 'monthly_summaries/dominica__2026-09';
 const settings = db => ({ db, countryKey: 'dominica', country: 'Dominica', month: '2026-09', email: 'chair@test.test', baseline: new Map(), rows: [] });
 const row = (localId, amount = 25) => ({ localId, date: '2026-09-01', purpose: 'Transport', otherDetails: '', amount });
+
+const loadReports = options => new Promise((resolve, reject) => {
+  let stop;
+  const timer = setTimeout(() => { stop?.(); reject(new Error('Report subscriptions timed out')); }, 15000);
+  stop = subscribeToReports({ ...options, onChange: state => {
+    if (state.error || !state.loading) { clearTimeout(timer); stop?.(); state.error ? reject(new Error(state.error)) : resolve(state.reports); }
+  } });
+});
+
+test('saved reports survive fresh subscriptions: legacy country label, stable UID and deduplication', async () => {
+  const db = dbFor('chair');
+  const options = { db, uid: 'chair', email: 'chair@test.test', countryKey: 'dominica', country: 'Dominica', canReadCountry: true };
+  await setDoc(doc(db, 'reports/new-stable'), { createdBy: 'chair@test.test', createdByUid: 'chair', country: 'Dominica', countryKey: 'dominica', date: '2026-01-05', financials: { expenses: [] } });
+  await env.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'reports/legacy-label'), { createdBy: 'someone@test.test', country: 'Dominica', date: '2025-02-02' });
+    await setDoc(doc(context.firestore(), 'reports/old-email'), { createdBy: 'old-address@test.test', createdByUid: 'chair', date: '2025-01-01' });
+    await setDoc(doc(context.firestore(), 'reports/other-country'), { createdBy: 'someone@test.test', country: 'Another', countryKey: 'another' });
+  });
+  for (let reload = 0; reload < 2; reload++) {
+    const saved = await loadReports(options);
+    assert.deepEqual(saved.map(report => report.id).sort(), ['legacy-label','new-stable','old-email']);
+  }
+  const own = await loadReports({ ...options, canReadCountry: false });
+  assert.deepEqual(own.map(report => report.id).sort(), ['new-stable','old-email']);
+});
+
+test('report UID cannot be impersonated or changed after save', async () => {
+  const db = dbFor('user');
+  const report = { createdBy: 'user@test.test', createdByUid: 'user', countryKey: 'dominica', financials: { expenses: [] } };
+  await assertFails(setDoc(doc(db, 'reports/spoof'), { ...report, createdByUid: 'chair' }));
+  await setDoc(doc(db, 'reports/owned'), report);
+  await assertFails(updateDoc(doc(db, 'reports/owned'), { createdByUid: 'chair' }));
+  assert.equal((await getDoc(doc(db, 'reports/owned'))).data().createdByUid, 'user');
+});
 
 test('administrator edits a profile, preserves identity, and cannot overwrite a concurrent edit', async () => {
   const db = dbFor('admin');

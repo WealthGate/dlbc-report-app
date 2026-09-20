@@ -90,14 +90,18 @@ service cloud.firestore {
     /* REPORTS */
     match /reports/{reportId} {
       allow read: if canReadCountryReports() && resource.data.countryKey == userCountryKey();
+      allow read: if canReadCountryReports() && resource.data.country == userDoc().data.country;
       allow read: if isSignedIn() && request.auth.token.email == resource.data.createdBy;
+      allow read: if isSignedIn() && request.auth.uid == resource.data.createdByUid;
       allow create: if isSignedIn()
         && request.resource.data.createdBy == request.auth.token.email
+        && request.resource.data.get('createdByUid', request.auth.uid) == request.auth.uid
         && request.resource.data.countryKey == userCountryKey()
         && canCreateReportWithExpenses();
       allow update: if isSignedIn()
-        && request.auth.token.email == resource.data.createdBy
+        && (request.auth.token.email == resource.data.createdBy || request.auth.uid == resource.data.get('createdByUid', ''))
         && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.get('createdByUid', '') == resource.data.get('createdByUid', '')
         && request.resource.data.countryKey == resource.data.countryKey
         && canUpdateReportExpenses();
       allow delete: if isSignedIn()
